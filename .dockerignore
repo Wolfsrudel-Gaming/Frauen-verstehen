@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+build
+apps/mobile
+.git
+.dart_tool
+*.log
