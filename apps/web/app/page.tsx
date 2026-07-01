@@ -39,6 +39,34 @@ export default async function Home() {
         <p>Database: <strong>{health.db}</strong></p>
       </section>
 
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 style={{ fontSize: 16, color: "#555", marginBottom: "0.75rem" }}>Navigation</h2>
+        <div style={{ display: "flex", gap: "0.75rem" }}>
+          {(
+            [
+              { href: "/vehicles", label: "Vehicles" },
+              { href: "/trips", label: "Trips" },
+            ] as const
+          ).map(({ href, label }) => (
+            <a
+              key={href}
+              href={href}
+              style={{
+                padding: "0.5rem 1.1rem",
+                background: "#0070f3",
+                color: "#fff",
+                borderRadius: 6,
+                textDecoration: "none",
+                fontWeight: 600,
+                fontSize: 15,
+              }}
+            >
+              {label}
+            </a>
+          ))}
+        </div>
+      </section>
+
       <section>
         <h2 style={{ fontSize: 16, color: "#555", marginBottom: "0.5rem" }}>Your Organizations</h2>
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>

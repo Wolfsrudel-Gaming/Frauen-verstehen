@@ -63,6 +63,20 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   return res.json() as Promise<CurrentUser>;
 }
 
+/** Authenticated fetch to the backend — uses the current token from the cookie. */
+export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = await getToken();
+  return fetch(`${BACKEND_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+  });
+}
+
 /** Login against the backend, stores token, returns org list. */
 export async function backendLogin(body: {
   username: string;
