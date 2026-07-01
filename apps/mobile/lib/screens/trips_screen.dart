@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/trip_detection_service.dart';
+import 'trip_map_screen.dart';
 
 class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
@@ -19,10 +22,25 @@ class _TripsScreenState extends State<TripsScreen> {
   final _odoCtrl = TextEditingController();
   final _endOdoCtrl = TextEditingController();
 
+  TripState _autoState = TripDetectionService.state;
+  StreamSubscription<TripState>? _stateSub;
+  bool _autoDetect = false;
+
   @override
   void initState() {
     super.initState();
+    _stateSub = TripDetectionService.stateStream.listen((s) {
+      setState(() { _autoState = s; });
+      // Auto-refresh trip list when a trip auto-starts or auto-ends
+      if (s == TripState.inTrip || s == TripState.idle) _load();
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -49,6 +67,15 @@ class _TripsScreenState extends State<TripsScreen> {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _toggleAutoDetect(bool enabled) async {
+    if (enabled) {
+      await TripDetectionService.start();
+    } else {
+      await TripDetectionService.stop();
+    }
+    setState(() { _autoDetect = enabled; });
   }
 
   Future<void> _startTrip() async {
@@ -96,7 +123,7 @@ class _TripsScreenState extends State<TripsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Discard Trip?'),
-        content: const Text('This will mark the trip as discarded. This cannot be undone.'),
+        content: const Text('This will mark the trip as discarded.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
@@ -146,6 +173,15 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+  String _autoStateLabel() {
+    switch (_autoState) {
+      case TripState.idle: return 'Watching for movement…';
+      case TripState.detecting: return 'Movement detected — confirming…';
+      case TripState.inTrip: return 'Auto-trip in progress';
+      case TripState.stopping: return 'Stopped — waiting to finalize…';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final active = _activeTrip;
@@ -164,8 +200,34 @@ class _TripsScreenState extends State<TripsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      // ---- Auto-detection toggle ----
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Auto Trip Detection', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    if (_autoDetect)
+                                      Text(_autoStateLabel(), style: TextStyle(fontSize: 12, color: _autoState == TripState.inTrip ? Colors.green : Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: _autoDetect,
+                                onChanged: _toggleAutoDetect,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
                       // ---- Active trip control ----
-                      if (active != null) ...[
+                      if (active != null && !(_autoDetect && _autoState == TripState.inTrip)) ...[
                         Card(
                           color: Colors.orange.shade50,
                           child: Padding(
@@ -179,11 +241,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _endOdoCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'End Odometer (km)',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
+                                  decoration: const InputDecoration(labelText: 'End Odometer (km)', isDense: true, border: OutlineInputBorder()),
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 12),
@@ -212,8 +270,8 @@ class _TripsScreenState extends State<TripsScreen> {
                         const SizedBox(height: 16),
                       ],
 
-                      // ---- Start trip form (if no active trip) ----
-                      if (active == null) ...[
+                      // ---- Start trip form ----
+                      if (active == null && !_autoDetect) ...[
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(16),
@@ -228,21 +286,14 @@ class _TripsScreenState extends State<TripsScreen> {
                                     decoration: const InputDecoration(labelText: 'Vehicle', isDense: true, border: OutlineInputBorder()),
                                     items: [
                                       const DropdownMenuItem(value: null, child: Text('— no vehicle —')),
-                                      ..._vehicles.map((v) => DropdownMenuItem(
-                                            value: v['id'] as String,
-                                            child: Text('${v['make']} ${v['model']}'),
-                                          )),
+                                      ..._vehicles.map((v) => DropdownMenuItem(value: v['id'] as String, child: Text('${v['make']} ${v['model']}'))),
                                     ],
                                     onChanged: (v) => setState(() => _selectedVehicleId = v),
                                   ),
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _odoCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Start Odometer (km, optional)',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                  ),
+                                  decoration: const InputDecoration(labelText: 'Start Odometer (km, optional)', isDense: true, border: OutlineInputBorder()),
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 16),
@@ -273,16 +324,24 @@ class _TripsScreenState extends State<TripsScreen> {
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: _statusColor(t['status'] as String),
-                                radius: 6,
+                                radius: 8,
                               ),
                               title: Text(_formatDate(t['startedAt'] as String), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               subtitle: Text(
                                 '${_duration(t['startedAt'] as String, t['endedAt'] as String?)}${t['distanceKm'] != null ? ' · ${double.parse(t['distanceKm'] as String).toStringAsFixed(1)} km' : ''}',
                                 style: const TextStyle(fontSize: 13),
                               ),
-                              trailing: Text(
-                                t['status'] as String,
-                                style: TextStyle(color: _statusColor(t['status'] as String), fontSize: 12),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.map, color: Colors.blue),
+                                tooltip: 'View on map',
+                                onPressed: () {
+                                  Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => TripMapScreen(
+                                      tripId: t['id'] as String,
+                                      tripDate: _formatDate(t['startedAt'] as String),
+                                    ),
+                                  ));
+                                },
                               ),
                             ),
                           ))),

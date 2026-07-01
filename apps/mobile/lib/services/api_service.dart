@@ -136,9 +136,10 @@ class ApiService {
     String? vehicleId,
     int? startOdometer,
     String? notes,
+    String startTrigger = 'manual',
   }) async {
     final body = <String, dynamic>{
-      'startTrigger': 'manual',
+      'startTrigger': startTrigger,
       if (vehicleId != null) 'vehicleId': vehicleId,
       if (startOdometer != null) 'startOdometer': startOdometer,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
@@ -154,9 +155,10 @@ class ApiService {
   static Future<Map<String, dynamic>> endTrip(
     String tripId, {
     int? endOdometer,
+    String endTrigger = 'manual',
   }) async {
     final body = <String, dynamic>{
-      'endTrigger': 'manual',
+      'endTrigger': endTrigger,
       if (endOdometer != null) 'endOdometer': endOdometer,
     };
     final res = await http.post(
@@ -173,5 +175,37 @@ class ApiService {
       headers: await _authedHeaders(),
     );
     await _handleResponse(res);
+  }
+
+  // -------------------------------------------------------------------------
+  // GPS tracking
+  // -------------------------------------------------------------------------
+
+  static Future<Map<String, dynamic>> batchPoints({
+    required String tripId,
+    required List<Map<String, dynamic>> points,
+    String? segmentId,
+    String sourceType = 'smartphone_gps',
+  }) async {
+    final body = <String, dynamic>{
+      'points': points,
+      'sourceType': sourceType,
+      if (segmentId != null) 'segmentId': segmentId,
+    };
+    final res = await http.post(
+      Uri.parse('$_baseUrl/trips/$tripId/points'),
+      headers: await _authedHeaders(),
+      body: jsonEncode(body),
+    );
+    return await _handleResponse(res) as Map<String, dynamic>;
+  }
+
+  static Future<List<Map<String, dynamic>>> getTripPoints(String tripId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/trips/$tripId/points'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
   }
 }

@@ -22,6 +22,13 @@
       "when": 1782935456060,
       "tag": "0002_stormy_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782939652217,
+      "tag": "0003_mighty_silver_sable",
+      "breakpoints": true
     }
   ]
 }

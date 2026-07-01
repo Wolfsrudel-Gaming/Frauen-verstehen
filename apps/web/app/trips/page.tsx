@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { backendFetch } from "../lib/auth";
 import { startTripAction, endTripAction, discardTripAction } from "./actions";
 
@@ -113,7 +114,9 @@ export default async function TripsPage() {
                     {t.status.replace("_", " ")}
                   </span>
                   <div style={{ fontWeight: 600, fontSize: 16 }}>
-                    {formatDate(t.startedAt)}
+                    <Link href={`/trips/${t.id}`} style={{ color: "inherit", textDecoration: "none" }}>
+                      {formatDate(t.startedAt)}
+                    </Link>
                   </div>
                   <div style={{ color: "#555", fontSize: 14, marginTop: 2 }}>
                     Duration: {duration(t.startedAt, t.endedAt)}

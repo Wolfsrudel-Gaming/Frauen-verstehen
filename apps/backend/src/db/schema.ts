@@ -140,6 +140,50 @@ export const trips = pgTable("trips", {
 });
 
 // ---------------------------------------------------------------------------
+// Trip segments — contiguous block of points from a single source
+// source_type: 'smartphone_gps' | 'bt_gps_tracker' | 'hardwired_gps' | 'dead_reckoning' | 'obd'
+// ---------------------------------------------------------------------------
+
+export const tripSegments = pgTable("trip_segments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tripId: uuid("trip_id")
+    .notNull()
+    .references(() => trips.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull().default("smartphone_gps"),
+  isEstimated: boolean("is_estimated").notNull().default(false),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Trip points — individual GPS/OBD readings within a segment
+// ---------------------------------------------------------------------------
+
+export const tripPoints = pgTable("trip_points", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tripId: uuid("trip_id")
+    .notNull()
+    .references(() => trips.id, { onDelete: "cascade" }),
+  segmentId: uuid("segment_id").references(() => tripSegments.id, { onDelete: "set null" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  lat: numeric("lat", { precision: 10, scale: 7 }).notNull(),
+  lon: numeric("lon", { precision: 10, scale: 7 }).notNull(),
+  altitudeM: numeric("altitude_m", { precision: 7, scale: 2 }),
+  accuracyM: numeric("accuracy_m", { precision: 7, scale: 2 }),
+  speedKmh: numeric("speed_kmh", { precision: 6, scale: 2 }),
+  headingDeg: numeric("heading_deg", { precision: 5, scale: 2 }),
+  isEstimated: boolean("is_estimated").notNull().default(false),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Audit log — append-only, org_id nullable for global/system events
 // ---------------------------------------------------------------------------
 
