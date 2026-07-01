@@ -176,9 +176,9 @@ class Obd2Adapter {
     if (idx < 0) return null;
 
     final dataStart = idx + header.length;
-    if (clean.length < dataStart + expectedHexLen - 2) return null; // -2 for header already counted
+    if (clean.length < dataStart + expectedHexLen) return null;
 
-    final dataHex = clean.substring(dataStart, dataStart + (expectedHexLen - 2));
+    final dataHex = clean.substring(dataStart, dataStart + expectedHexLen);
     final bytes = <int>[];
     for (int i = 0; i + 2 <= dataHex.length; i += 2) {
       final b = int.tryParse(dataHex.substring(i, i + 2), radix: 16);

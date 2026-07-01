@@ -4,7 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Known ELM327 BLE GATT service/characteristic UUIDs.
-// Carista's real UUIDs must be confirmed by scanning (use BLE inspector in app).
+// Carista's real UUIDs must be confirmed via the BLE Inspector in the app.
 // Most generic ELM327 dongles use one of these two profiles.
 const _kKnownProfiles = [
   _BleProfile(service: 'fff0', write: 'fff2', notify: 'fff1'), // profile A (most common)
@@ -22,7 +22,7 @@ class _BleProfile {
   const _BleProfile({required this.service, required this.write, required this.notify});
 }
 
-// Represents a discovered BLE device with advertised services
+// Represents a discovered BLE device with advertised name + signal strength
 class DiscoveredDevice {
   final BluetoothDevice device;
   final String name;
@@ -47,19 +47,29 @@ class BleService {
   static Stream<List<int>> get rxStream => _rxController.stream;
 
   static BluetoothDevice? get connectedDevice => _connectedDevice;
-  static bool get isConnected => _connectedDevice != null;
+
+  // true when the BLE link is up AND ELM327 characteristics are resolved
+  static bool get isConnected => _connectedDevice != null && _writeChar != null;
+
+  // true when physically connected to a BLE device (even without OBD profile)
+  static bool get isBleConnected => _connectedDevice != null;
 
   // -------------------------------------------------------------------------
-  // Scan for BLE devices (returns a stream of discovered devices)
+  // Scan for BLE devices (returns a stream of discovered devices).
+  // Shows ALL named devices; the user can filter/pick in the UI.
   // -------------------------------------------------------------------------
-  static Stream<DiscoveredDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
+  static Stream<DiscoveredDevice> scan({Duration timeout = const Duration(seconds: 12)}) {
     final controller = StreamController<DiscoveredDevice>();
+    StreamSubscription? innerSub;
 
     FlutterBluePlus.startScan(timeout: timeout).then((_) {
-      controller.close();
-    }).catchError(controller.addError);
+      innerSub?.cancel();
+      if (!controller.isClosed) controller.close();
+    }).catchError((Object e) {
+      if (!controller.isClosed) controller.addError(e);
+    });
 
-    FlutterBluePlus.scanResults.listen((results) {
+    innerSub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
         if (r.device.platformName.isNotEmpty) {
           controller.add(DiscoveredDevice(
@@ -74,15 +84,29 @@ class BleService {
       }
     });
 
+    controller.onCancel = () {
+      innerSub?.cancel();
+      FlutterBluePlus.stopScan();
+    };
+
     return controller.stream;
   }
 
   static Future<void> stopScan() => FlutterBluePlus.stopScan();
 
   // -------------------------------------------------------------------------
-  // Connect to a device and discover the ELM327 characteristics
+  // Connect to a device and discover ELM327 characteristics.
+  //
+  // Returns the matched profile, or null if no ELM327 profile was found.
+  // IMPORTANT: the BLE connection is kept alive even when null is returned so
+  // the BLE Inspector can enumerate services and identify the correct UUIDs.
   // -------------------------------------------------------------------------
   static Future<_BleProfile?> connect(BluetoothDevice device) async {
+    // Disconnect any existing connection first
+    if (_connectedDevice != null && _connectedDevice!.remoteId != device.remoteId) {
+      await disconnect();
+    }
+
     await device.connect(autoConnect: false, timeout: const Duration(seconds: 15));
     _connectedDevice = device;
 
@@ -113,9 +137,22 @@ class BleService {
       return profile;
     }
 
-    // Profile not found — disconnect and signal failure so BLE inspector can run
-    await disconnect();
+    // No ELM327 profile found — leave BLE connection open so the BLE
+    // Inspector screen can call inspectServices() on this device.
     return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Connect purely for BLE inspection (no ELM327 profile discovery).
+  // Used by the BLE Inspector screen to enumerate GATT services.
+  // -------------------------------------------------------------------------
+  static Future<void> connectRaw(BluetoothDevice device) async {
+    if (_connectedDevice != null && _connectedDevice!.remoteId != device.remoteId) {
+      await disconnect();
+    }
+    if (_connectedDevice?.remoteId == device.remoteId) return; // already connected
+    await device.connect(autoConnect: false, timeout: const Duration(seconds: 15));
+    _connectedDevice = device;
   }
 
   // -------------------------------------------------------------------------
@@ -138,28 +175,33 @@ class BleService {
   }
 
   // -------------------------------------------------------------------------
-  // List all services+characteristics of the connected device (BLE inspector)
+  // List all GATT services+characteristics of the currently connected device.
+  // Used by the BLE Inspector to identify the adapter's custom UUIDs.
   // -------------------------------------------------------------------------
   static Future<List<Map<String, dynamic>>> inspectServices() async {
     if (_connectedDevice == null) return [];
-    final services = await _connectedDevice!.discoverServices();
-    return services.map((s) => {
-      'serviceUuid': s.uuid.str128,
-      'characteristics': s.characteristics.map((c) => {
-        'uuid': c.uuid.str128,
-        'properties': {
-          'read': c.properties.read,
-          'write': c.properties.write,
-          'writeWithoutResponse': c.properties.writeWithoutResponse,
-          'notify': c.properties.notify,
-          'indicate': c.properties.indicate,
-        },
-      }).toList(),
-    }).toList();
+    try {
+      final services = await _connectedDevice!.discoverServices();
+      return services.map((s) => {
+        'serviceUuid': s.uuid.str128,
+        'characteristics': s.characteristics.map((c) => {
+          'uuid': c.uuid.str128,
+          'properties': {
+            'read': c.properties.read,
+            'write': c.properties.write,
+            'writeWithoutResponse': c.properties.writeWithoutResponse,
+            'notify': c.properties.notify,
+            'indicate': c.properties.indicate,
+          },
+        }).toList(),
+      }).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // -------------------------------------------------------------------------
-  // Send raw bytes / string to the ELM327
+  // Send raw AT command string to the ELM327
   // -------------------------------------------------------------------------
   static Future<void> write(String command) async {
     if (_writeChar == null) throw Exception('Not connected');
@@ -169,8 +211,12 @@ class BleService {
   }
 
   static Future<void> disconnect() async {
-    await _notifyChar?.setNotifyValue(false);
-    await _connectedDevice?.disconnect();
+    try {
+      await _notifyChar?.setNotifyValue(false);
+    } catch (_) {}
+    try {
+      await _connectedDevice?.disconnect();
+    } catch (_) {}
     _connectedDevice = null;
     _writeChar = null;
     _notifyChar = null;
