@@ -184,6 +184,74 @@ export const tripPoints = pgTable("trip_points", {
 });
 
 // ---------------------------------------------------------------------------
+// OBD sessions — one per BLE connection within a trip
+// adapter_name: human-readable BLE device name
+// adapter_mac: BLE address (may be randomised on iOS)
+// protocol: ELM327 detected protocol string e.g. 'ISO 15765-4 CAN'
+// ---------------------------------------------------------------------------
+
+export const obdSessions = pgTable("obd_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tripId: uuid("trip_id")
+    .notNull()
+    .references(() => trips.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  adapterName: text("adapter_name"),
+  adapterMac: text("adapter_mac"),
+  elmProtocol: text("elm_protocol"),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
+  disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// OBD readings — sampled PID values, one row per polling cycle
+// ---------------------------------------------------------------------------
+
+export const obdReadings = pgTable("obd_readings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tripId: uuid("trip_id")
+    .notNull()
+    .references(() => trips.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id").references(() => obdSessions.id, { onDelete: "set null" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  rpmX4: integer("rpm_x4"),          // raw ELM value: RPM = rpmX4 / 4
+  speedKmh: integer("speed_kmh"),    // PID 010D
+  coolantTempC: integer("coolant_temp_c"), // PID 0105, decoded (°C)
+  throttlePos: numeric("throttle_pos", { precision: 5, scale: 2 }), // PID 0111, 0-100 %
+  fuelLevelPct: numeric("fuel_level_pct", { precision: 5, scale: 2 }), // PID 012F, 0-100 %
+  intakeAirTempC: integer("intake_air_temp_c"), // PID 010F
+  mafGps: numeric("maf_gps", { precision: 7, scale: 2 }), // PID 0110, g/s
+  rawPids: jsonb("raw_pids"),        // full PID → raw hex map for future parsing
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// DTC events — trouble codes detected or cleared
+// severity: 'info' | 'warning' | 'error'
+// ---------------------------------------------------------------------------
+
+export const dtcEvents = pgTable("dtc_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
+  tripId: uuid("trip_id").references(() => trips.id, { onDelete: "set null" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  description: text("description"),
+  severity: text("severity").notNull().default("warning"),
+  detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow().notNull(),
+  clearedAt: timestamp("cleared_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Audit log — append-only, org_id nullable for global/system events
 // ---------------------------------------------------------------------------
 

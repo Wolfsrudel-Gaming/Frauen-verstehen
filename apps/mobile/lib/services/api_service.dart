@@ -208,4 +208,83 @@ class ApiService {
     final list = await _handleResponse(res) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
   }
+
+  // -------------------------------------------------------------------------
+  // OBD sessions
+  // -------------------------------------------------------------------------
+
+  static Future<Map<String, dynamic>> startObdSession({
+    required String tripId,
+    String? adapterName,
+    String? adapterMac,
+  }) async {
+    final body = <String, dynamic>{
+      if (adapterName != null) 'adapterName': adapterName,
+      if (adapterMac != null) 'adapterMac': adapterMac,
+    };
+    final res = await http.post(
+      Uri.parse('$_baseUrl/trips/$tripId/obd/sessions'),
+      headers: await _authedHeaders(),
+      body: jsonEncode(body),
+    );
+    return await _handleResponse(res) as Map<String, dynamic>;
+  }
+
+  static Future<void> endObdSession({
+    required String tripId,
+    required String sessionId,
+    String? elmProtocol,
+  }) async {
+    final body = <String, dynamic>{
+      if (elmProtocol != null) 'elmProtocol': elmProtocol,
+    };
+    final res = await http.patch(
+      Uri.parse('$_baseUrl/trips/$tripId/obd/sessions/$sessionId'),
+      headers: await _authedHeaders(),
+      body: jsonEncode(body),
+    );
+    await _handleResponse(res);
+  }
+
+  // -------------------------------------------------------------------------
+  // OBD readings
+  // -------------------------------------------------------------------------
+
+  static Future<void> batchObdReadings({
+    required String tripId,
+    required List<Map<String, dynamic>> readings,
+    String? sessionId,
+  }) async {
+    final body = <String, dynamic>{
+      'readings': readings,
+      if (sessionId != null) 'sessionId': sessionId,
+    };
+    final res = await http.post(
+      Uri.parse('$_baseUrl/trips/$tripId/obd/readings'),
+      headers: await _authedHeaders(),
+      body: jsonEncode(body),
+    );
+    await _handleResponse(res);
+  }
+
+  // -------------------------------------------------------------------------
+  // DTC reporting
+  // -------------------------------------------------------------------------
+
+  static Future<void> reportDtcs({
+    required String tripId,
+    required List<String> codes,
+    String? vehicleId,
+  }) async {
+    final body = <String, dynamic>{
+      'codes': codes.map((c) => {'code': c}).toList(),
+      if (vehicleId != null) 'vehicleId': vehicleId,
+    };
+    final res = await http.post(
+      Uri.parse('$_baseUrl/trips/$tripId/dtc'),
+      headers: await _authedHeaders(),
+      body: jsonEncode(body),
+    );
+    await _handleResponse(res);
+  }
 }

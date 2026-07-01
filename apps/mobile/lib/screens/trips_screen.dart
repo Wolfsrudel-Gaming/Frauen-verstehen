@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/obd_fusion_service.dart';
 import '../services/trip_detection_service.dart';
+import 'ble_scanner_screen.dart';
+import 'live_obd_screen.dart';
 import 'trip_map_screen.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -182,6 +185,8 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     final active = _activeTrip;
@@ -263,6 +268,8 @@ class _TripsScreenState extends State<TripsScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 12),
+                                _ObdConnectButton(tripId: active['id'] as String),
                               ],
                             ),
                           ),
@@ -348,6 +355,71 @@ class _TripsScreenState extends State<TripsScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OBD Connect button — shown on an active trip card.
+// Navigates to BLE scanner if not connected; shows live screen if already connected.
+// ---------------------------------------------------------------------------
+class _ObdConnectButton extends StatefulWidget {
+  final String tripId;
+  const _ObdConnectButton({required this.tripId});
+
+  @override
+  State<_ObdConnectButton> createState() => _ObdConnectButtonState();
+}
+
+class _ObdConnectButtonState extends State<_ObdConnectButton> {
+  bool _connected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _connected = ObdFusionService.isConnected;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_connected) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: () {
+            final protocol = ObdFusionService.elmProtocol ?? 'OBD';
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => LiveObdScreen(tripId: widget.tripId, protocol: protocol),
+              ),
+            );
+          },
+          icon: const Icon(Icons.bluetooth_connected),
+          label: const Text('View Live OBD'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => BleScannerScreen(tripId: widget.tripId),
+            ),
+          );
+        },
+        icon: const Icon(Icons.bluetooth_searching),
+        label: const Text('Connect OBD Adapter'),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
     );
   }
 }

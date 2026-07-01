@@ -28,6 +28,24 @@ type Point = {
   recordedAt: string;
 };
 
+type ObdReading = {
+  recordedAt: string;
+  rpmX4: number | null;
+  speedKmh: number | null;
+  coolantTempC: number | null;
+  throttlePos: number | null;
+  fuelLevelPct: number | null;
+  intakeAirTempC: number | null;
+  mafGps: number | null;
+};
+
+type DtcEvent = {
+  code: string;
+  severity: string | null;
+  detectedAt: string;
+  clearedAt: string | null;
+};
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString("de-DE", {
     day: "2-digit",
@@ -58,9 +76,11 @@ const statBox: React.CSSProperties = {
 export default async function TripDetailPage({ params }: Props) {
   const { id } = await params;
 
-  const [tripRes, pointsRes] = await Promise.all([
+  const [tripRes, pointsRes, obdRes, dtcRes] = await Promise.all([
     backendFetch(`/trips/${id}`),
     backendFetch(`/trips/${id}/points`),
+    backendFetch(`/trips/${id}/obd/readings`),
+    backendFetch(`/trips/${id}/dtc`),
   ]);
 
   if (!tripRes.ok) {
@@ -74,6 +94,8 @@ export default async function TripDetailPage({ params }: Props) {
 
   const trip: Trip = await tripRes.json();
   const rawPoints: Point[] = pointsRes.ok ? await pointsRes.json() : [];
+  const obdReadings: ObdReading[] = obdRes.ok ? await obdRes.json() : [];
+  const dtcEvents: DtcEvent[] = dtcRes.ok ? await dtcRes.json() : [];
 
   const mapPoints: LatLon[] = rawPoints.map((p) => ({
     lat: Number(p.lat),
@@ -90,6 +112,16 @@ export default async function TripDetailPage({ params }: Props) {
       ? rawPoints.filter((p) => p.speedKmh).reduce((s, p) => s + Number(p.speedKmh), 0) /
         rawPoints.filter((p) => p.speedKmh).length
       : null;
+
+  const obdMaxSpeed = obdReadings.length
+    ? Math.max(...obdReadings.filter((r) => r.speedKmh != null).map((r) => r.speedKmh!))
+    : null;
+  const obdAvgRpm =
+    obdReadings.filter((r) => r.rpmX4 != null).length
+      ? obdReadings.filter((r) => r.rpmX4 != null).reduce((s, r) => s + r.rpmX4! / 4, 0) /
+        obdReadings.filter((r) => r.rpmX4 != null).length
+      : null;
+  const lastObd = obdReadings.length ? obdReadings[obdReadings.length - 1] : null;
 
   const statusColor: Record<string, string> = {
     in_progress: "#f59e0b",
@@ -176,6 +208,111 @@ export default async function TripDetailPage({ params }: Props) {
       {trip.notes && (
         <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "1.5rem" }}>
           <span style={{ fontWeight: 600 }}>Notes:</span> {trip.notes}
+        </div>
+      )}
+
+      {/* OBD summary */}
+      {obdReadings.length > 0 && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ fontSize: 18, marginBottom: "0.75rem" }}>OBD Data</h2>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+            <div style={statBox}>
+              <div style={{ fontSize: 12, color: "#888" }}>Readings</div>
+              <div style={{ fontWeight: 700, fontSize: 20 }}>{obdReadings.length}</div>
+            </div>
+            {obdAvgRpm != null && (
+              <div style={statBox}>
+                <div style={{ fontSize: 12, color: "#888" }}>Avg RPM</div>
+                <div style={{ fontWeight: 700, fontSize: 20 }}>{obdAvgRpm.toFixed(0)}</div>
+              </div>
+            )}
+            {obdMaxSpeed != null && (
+              <div style={statBox}>
+                <div style={{ fontSize: 12, color: "#888" }}>Max Speed (OBD)</div>
+                <div style={{ fontWeight: 700, fontSize: 20 }}>{obdMaxSpeed} km/h</div>
+              </div>
+            )}
+            {lastObd?.coolantTempC != null && (
+              <div style={{ ...statBox, background: lastObd.coolantTempC > 100 ? "#fee2e2" : undefined }}>
+                <div style={{ fontSize: 12, color: "#888" }}>Last Coolant Temp</div>
+                <div style={{ fontWeight: 700, fontSize: 20 }}>{lastObd.coolantTempC}°C</div>
+              </div>
+            )}
+            {lastObd?.fuelLevelPct != null && (
+              <div style={{ ...statBox, background: lastObd.fuelLevelPct < 10 ? "#fef3c7" : undefined }}>
+                <div style={{ fontSize: 12, color: "#888" }}>Last Fuel Level</div>
+                <div style={{ fontWeight: 700, fontSize: 20 }}>{lastObd.fuelLevelPct.toFixed(1)}%</div>
+              </div>
+            )}
+          </div>
+
+          {/* OBD readings table (last 20) */}
+          <details>
+            <summary style={{ cursor: "pointer", fontSize: 13, color: "#555", marginBottom: "0.5rem" }}>
+              Show last {Math.min(20, obdReadings.length)} readings
+            </summary>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb" }}>
+                    {["Time", "RPM", "Speed", "Coolant", "Throttle", "Fuel", "MAF"].map((h) => (
+                      <th key={h} style={{ padding: "6px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {obdReadings.slice(-20).map((r, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                      <td style={{ padding: "5px 10px", color: "#888" }}>
+                        {new Date(r.recordedAt).toLocaleTimeString("de-DE")}
+                      </td>
+                      <td style={{ padding: "5px 10px" }}>{r.rpmX4 != null ? (r.rpmX4 / 4).toFixed(0) : "—"}</td>
+                      <td style={{ padding: "5px 10px" }}>{r.speedKmh != null ? `${r.speedKmh} km/h` : "—"}</td>
+                      <td style={{ padding: "5px 10px" }}>{r.coolantTempC != null ? `${r.coolantTempC}°C` : "—"}</td>
+                      <td style={{ padding: "5px 10px" }}>{r.throttlePos != null ? `${r.throttlePos.toFixed(1)}%` : "—"}</td>
+                      <td style={{ padding: "5px 10px" }}>{r.fuelLevelPct != null ? `${r.fuelLevelPct.toFixed(1)}%` : "—"}</td>
+                      <td style={{ padding: "5px 10px" }}>{r.mafGps != null ? `${r.mafGps.toFixed(1)} g/s` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* DTC events */}
+      {dtcEvents.length > 0 && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ fontSize: 18, marginBottom: "0.75rem", color: "#dc2626" }}>
+            Fault Codes ({dtcEvents.length})
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {dtcEvents.map((dtc, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  border: "1px solid #fca5a5",
+                  borderRadius: 8,
+                  padding: "0.6rem 1rem",
+                  background: dtc.clearedAt ? "#f9fafb" : "#fff1f2",
+                }}
+              >
+                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 15 }}>{dtc.code}</span>
+                {dtc.severity && (
+                  <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "#fee2e2", color: "#991b1b" }}>
+                    {dtc.severity}
+                  </span>
+                )}
+                <span style={{ fontSize: 12, color: "#888", marginLeft: "auto" }}>
+                  {dtc.clearedAt ? "cleared" : `detected ${new Date(dtc.detectedAt).toLocaleString("de-DE")}`}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </main>
