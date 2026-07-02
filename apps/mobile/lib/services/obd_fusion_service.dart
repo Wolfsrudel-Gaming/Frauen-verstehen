@@ -39,27 +39,36 @@ class ObdFusionService {
   static Future<String> connect(BluetoothDevice device, String tripId) async {
     _activeTripId = tripId;
 
-    // BLE connection + GATT profile discovery
+    // BLE connection + GATT profile discovery.
+    // On failure the BLE link stays open so the BLE Inspector can enumerate
+    // the device's services — do NOT disconnect here.
     final profile = await BleService.connect(device);
     if (profile == null) {
       throw Exception(
         'Could not find ELM327 characteristics on this device.\n'
-        'Use the BLE Inspector to identify the correct UUIDs, then save them in Settings.',
+        'Use the BLE Inspector to identify the correct UUIDs, then save them.',
       );
     }
 
-    // Notify backend of session start
-    final adapterName = device.platformName;
-    final session = await ApiService.startObdSession(
-      tripId: tripId,
-      adapterName: adapterName.isNotEmpty ? adapterName : null,
-    );
-    _sessionId = session['id'] as String;
+    try {
+      // Notify backend of session start
+      final adapterName = device.platformName;
+      final session = await ApiService.startObdSession(
+        tripId: tripId,
+        adapterName: adapterName.isNotEmpty ? adapterName : null,
+      );
+      _sessionId = session['id'] as String;
 
-    // ELM327 init + protocol detection
-    _elm = Elm327Client();
-    _obd = Obd2Adapter(_elm!);
-    _elmProtocol = await _obd!.init();
+      // ELM327 init + protocol detection
+      _elm = Elm327Client();
+      _obd = Obd2Adapter(_elm!);
+      _elmProtocol = await _obd!.init();
+    } catch (e) {
+      // Init failed (ignition off, backend down, …) — roll back everything
+      // so a retry starts from a clean state instead of leaking a session.
+      await disconnect();
+      rethrow;
+    }
 
     // Read DTCs immediately after connect and notify user
     await _checkDtcs(tripId);
@@ -109,8 +118,14 @@ class ObdFusionService {
   // -------------------------------------------------------------------------
   // Internal: poll one reading cycle
   // -------------------------------------------------------------------------
+  static bool _polling = false;
+
   static Future<void> _poll() async {
     if (_obd == null) return;
+    // A full PID cycle can exceed the poll interval — never overlap two
+    // cycles, or their ELM327 commands would interleave on the wire.
+    if (_polling) return;
+    _polling = true;
     try {
       final reading = await _obd!.poll();
       _lastReading = reading;
@@ -123,6 +138,8 @@ class ObdFusionService {
       if (e.toString().contains('Not connected') || e.toString().contains('timeout')) {
         await disconnect();
       }
+    } finally {
+      _polling = false;
     }
   }
 

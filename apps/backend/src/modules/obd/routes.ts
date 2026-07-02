@@ -1,19 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { eq, and, asc, isNull } from "drizzle-orm";
-import { sql } from "drizzle-orm";
-import { db } from "../../db/client.js";
+import { withOrg } from "../../db/with-org.js";
 import { trips, obdSessions, obdReadings, dtcEvents, vehicles } from "../../db/schema.js";
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-async function withOrg<T>(orgId: string, userId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL app.current_org_id = ${orgId}`);
-    await tx.execute(sql`SET LOCAL app.current_user_id = ${userId}`);
-    await tx.execute(sql`SET LOCAL app.bypass_rls = 'off'`);
-    return fn(tx);
-  });
-}
 
 type ReadingInput = {
   recordedAt: string;

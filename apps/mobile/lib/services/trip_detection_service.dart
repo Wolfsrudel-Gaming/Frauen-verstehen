@@ -58,7 +58,9 @@ class TripDetectionService {
   static Future<void> _onPosition(Position pos) async {
     final speedKmh = (pos.speed * 3.6).clamp(0, 300).toDouble();
 
-    if (_lastPos != null) {
+    // Only accumulate distance while a trip candidate is running — otherwise
+    // idle wandering counts toward kMinDetectM/kMinTripM.
+    if (_state != TripState.idle && _lastPos != null) {
       _totalDistanceM += Geolocator.distanceBetween(
         _lastPos!.latitude, _lastPos!.longitude,
         pos.latitude, pos.longitude,
@@ -71,6 +73,7 @@ class TripDetectionService {
         if (speedKmh >= kStartSpeedKmh) {
           _setState(TripState.detecting);
           _detectingStart = pos;
+          _totalDistanceM = 0;
         }
 
       case TripState.detecting:

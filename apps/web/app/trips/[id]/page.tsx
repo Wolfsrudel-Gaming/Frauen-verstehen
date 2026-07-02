@@ -28,14 +28,21 @@ type Point = {
   recordedAt: string;
 };
 
-type ObdReading = {
+// Postgres numeric columns come back as strings from Drizzle
+type ObdReadingRaw = {
   recordedAt: string;
   rpmX4: number | null;
   speedKmh: number | null;
   coolantTempC: number | null;
+  throttlePos: string | null;
+  fuelLevelPct: string | null;
+  intakeAirTempC: number | null;
+  mafGps: string | null;
+};
+
+type ObdReading = Omit<ObdReadingRaw, "throttlePos" | "fuelLevelPct" | "mafGps"> & {
   throttlePos: number | null;
   fuelLevelPct: number | null;
-  intakeAirTempC: number | null;
   mafGps: number | null;
 };
 
@@ -94,7 +101,13 @@ export default async function TripDetailPage({ params }: Props) {
 
   const trip: Trip = await tripRes.json();
   const rawPoints: Point[] = pointsRes.ok ? await pointsRes.json() : [];
-  const obdReadings: ObdReading[] = obdRes.ok ? await obdRes.json() : [];
+  const rawObd: ObdReadingRaw[] = obdRes.ok ? await obdRes.json() : [];
+  const obdReadings: ObdReading[] = rawObd.map((r) => ({
+    ...r,
+    throttlePos: r.throttlePos != null ? Number(r.throttlePos) : null,
+    fuelLevelPct: r.fuelLevelPct != null ? Number(r.fuelLevelPct) : null,
+    mafGps: r.mafGps != null ? Number(r.mafGps) : null,
+  }));
   const dtcEvents: DtcEvent[] = dtcRes.ok ? await dtcRes.json() : [];
 
   const mapPoints: LatLon[] = rawPoints.map((p) => ({

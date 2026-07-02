@@ -51,7 +51,7 @@ class Elm327Client {
     for (final pid in ['0100', '0120', '0140', '0160', '0180']) {
       try {
         final response = await _cmd(pid);
-        final bits = _parsePidBitmap(response, pid);
+        final bits = parsePidBitmap(response, pid);
         supported.addAll(bits);
       } catch (_) {
         break; // stop at first unsupported range
@@ -66,7 +66,7 @@ class Elm327Client {
   // -------------------------------------------------------------------------
   Future<List<String>> readDtcs() async {
     final response = await _cmd('03', timeout: const Duration(seconds: 8));
-    return _parseDtcs(response);
+    return parseDtcs(response);
   }
 
   Future<void> dispose() async {
@@ -105,7 +105,8 @@ class Elm327Client {
     });
   }
 
-  Set<String> _parsePidBitmap(String response, String requestPid) {
+  // Public + static so the decoding logic is unit-testable without BLE.
+  static Set<String> parsePidBitmap(String response, String requestPid) {
     // Response is like "41 00 BE 3F A8 13" (header off, no spaces after ATS0)
     // ATS0 means spaces ARE removed — response is "4100BE3FA813"
     final clean = response.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
@@ -129,22 +130,34 @@ class Elm327Client {
     return pids;
   }
 
-  List<String> _parseDtcs(String response) {
-    // Mode 03 response (ATS0): "430301200000" — 43 = response mode
-    // Each DTC is 2 bytes: first nibble encodes type (P/C/B/U)
-    final clean = response.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
-    if (clean.length < 4 || clean.startsWith('43') == false) return [];
-
-    final data = clean.substring(2); // strip "43"
+  static List<String> parseDtcs(String response) {
+    // Mode 03 responses, one frame per line (ATS0 removes spaces):
+    //   CAN (ISO 15765-4):  "4302030104 20" → "43" + count byte + DTC pairs
+    //   Legacy (K-Line):    "43030104200000" → "43" + 3 DTC pairs, 0-padded
+    // Each DTC is 2 bytes; the top 2 bits of the word encode P/C/B/U.
     final dtcs = <String>[];
-    for (int i = 0; i + 4 <= data.length; i += 4) {
-      final word = int.tryParse(data.substring(i, i + 4), radix: 16);
-      if (word == null || word == 0) continue;
 
-      final type = (word >> 14) & 0x3;
-      final code = (word & 0x3FFF).toString().padLeft(4, '0');
-      final prefix = ['P', 'C', 'B', 'U'][type];
-      dtcs.add('$prefix$code');
+    for (final line in response.split(RegExp(r'[\r\n]+'))) {
+      final clean = line.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+      if (clean.length < 4 || !clean.startsWith('43')) continue;
+
+      var data = clean.substring(2); // strip "43"
+      // CAN frames carry a DTC-count byte after "43"; legacy frames don't.
+      // With the count byte the payload length is ≡ 2 (mod 4), without it ≡ 0.
+      if (data.length % 4 == 2) data = data.substring(2);
+
+      for (int i = 0; i + 4 <= data.length; i += 4) {
+        final word = int.tryParse(data.substring(i, i + 4), radix: 16);
+        if (word == null || word == 0) continue; // 0000 = padding
+
+        final type = (word >> 14) & 0x3;
+        final prefix = ['P', 'C', 'B', 'U'][type];
+        // DTC digits: bits 13-12 (first digit 0-3), then three hex nibbles
+        final d1 = (word >> 12) & 0x3;
+        final rest = (word & 0x0FFF).toRadixString(16).padLeft(3, '0').toUpperCase();
+        final code = '$prefix$d1$rest';
+        if (!dtcs.contains(code)) dtcs.add(code);
+      }
     }
     return dtcs;
   }

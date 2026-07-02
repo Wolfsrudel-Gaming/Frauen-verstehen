@@ -71,7 +71,7 @@ class Obd2Adapter {
     if (supports('0C')) {
       final r = await _sendPid('010C');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '0C', 4);
+        final bytes = parseResponseBytes(r, '41', '0C', 4);
         if (bytes != null) rpmX4 = (bytes[0] << 8) | bytes[1]; // raw × 4
         raw['0C'] = r;
       }
@@ -81,7 +81,7 @@ class Obd2Adapter {
     if (supports('0D')) {
       final r = await _sendPid('010D');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '0D', 2);
+        final bytes = parseResponseBytes(r, '41', '0D', 2);
         if (bytes != null) speedKmh = bytes[0];
         raw['0D'] = r;
       }
@@ -91,7 +91,7 @@ class Obd2Adapter {
     if (supports('05')) {
       final r = await _sendPid('0105');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '05', 2);
+        final bytes = parseResponseBytes(r, '41', '05', 2);
         if (bytes != null) coolantTempC = bytes[0] - 40;
         raw['05'] = r;
       }
@@ -101,7 +101,7 @@ class Obd2Adapter {
     if (supports('11')) {
       final r = await _sendPid('0111');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '11', 2);
+        final bytes = parseResponseBytes(r, '41', '11', 2);
         if (bytes != null) throttlePos = bytes[0] * 100.0 / 255.0;
         raw['11'] = r;
       }
@@ -111,7 +111,7 @@ class Obd2Adapter {
     if (supports('2F')) {
       final r = await _sendPid('012F');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '2F', 2);
+        final bytes = parseResponseBytes(r, '41', '2F', 2);
         if (bytes != null) fuelLevel = bytes[0] * 100.0 / 255.0;
         raw['2F'] = r;
       }
@@ -121,7 +121,7 @@ class Obd2Adapter {
     if (supports('0F')) {
       final r = await _sendPid('010F');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '0F', 2);
+        final bytes = parseResponseBytes(r, '41', '0F', 2);
         if (bytes != null) intakeAirTemp = bytes[0] - 40;
         raw['0F'] = r;
       }
@@ -131,7 +131,7 @@ class Obd2Adapter {
     if (supports('10')) {
       final r = await _sendPid('0110');
       if (r != null) {
-        final bytes = _parseResponseBytes(r, '41', '10', 4);
+        final bytes = parseResponseBytes(r, '41', '10', 4);
         if (bytes != null) mafGps = ((bytes[0] << 8) | bytes[1]) / 100.0;
         raw['10'] = r;
       }
@@ -169,7 +169,8 @@ class Obd2Adapter {
 
   // Parse ELM327 response bytes (ATS0 removes spaces, so response is hex run)
   // Expected pattern: "41<PID><data_bytes>"
-  List<int>? _parseResponseBytes(String response, String mode, String pid, int expectedHexLen) {
+  // Public + static so the decoding logic is unit-testable without BLE.
+  static List<int>? parseResponseBytes(String response, String mode, String pid, int expectedHexLen) {
     final clean = response.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
     final header = '$mode$pid'.toUpperCase();
     final idx = clean.toUpperCase().indexOf(header);
