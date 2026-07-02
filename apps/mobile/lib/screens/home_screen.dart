@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/app_mode.dart';
 import 'login_screen.dart';
 import 'vehicles_screen.dart';
 import 'trips_screen.dart';
@@ -23,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadMe();
+    if (!AppMode.isOffline) _loadMe();
   }
 
   Future<void> _loadMe() async {
@@ -42,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _signOut() async {
+    await AppMode.setOffline(false);
     await ApiService.clearToken();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -69,7 +71,12 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Driver Analytics', style: TextStyle(fontSize: 16)),
-            if (_me != null)
+            if (AppMode.isOffline)
+              const Text(
+                'Offline-Modus · Daten lokal',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+              )
+            else if (_me != null)
               Text(
                 '$_activeOrgName · $username',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),

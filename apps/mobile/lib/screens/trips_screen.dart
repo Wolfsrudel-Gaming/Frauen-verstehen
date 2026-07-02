@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
+import '../services/data_service.dart';
 import '../services/obd_fusion_service.dart';
 import '../services/trip_detection_service.dart';
 import 'ble_scanner_screen.dart';
@@ -50,8 +50,8 @@ class _TripsScreenState extends State<TripsScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final results = await Future.wait([
-        ApiService.getTrips(),
-        ApiService.getVehicles(),
+        DataService.getTrips(),
+        DataService.getVehicles(),
       ]);
       setState(() {
         _trips = results[0];
@@ -84,7 +84,7 @@ class _TripsScreenState extends State<TripsScreen> {
   Future<void> _startTrip() async {
     setState(() { _actionLoading = true; });
     try {
-      await ApiService.startTrip(
+      await DataService.startTrip(
         vehicleId: _selectedVehicleId,
         startOdometer: _odoCtrl.text.isNotEmpty ? int.tryParse(_odoCtrl.text) : null,
       );
@@ -104,7 +104,7 @@ class _TripsScreenState extends State<TripsScreen> {
   Future<void> _endTrip(String tripId) async {
     setState(() { _actionLoading = true; });
     try {
-      await ApiService.endTrip(
+      await DataService.endTrip(
         tripId,
         endOdometer: _endOdoCtrl.text.isNotEmpty ? int.tryParse(_endOdoCtrl.text) : null,
       );
@@ -141,7 +141,7 @@ class _TripsScreenState extends State<TripsScreen> {
 
     setState(() { _actionLoading = true; });
     try {
-      await ApiService.discardTrip(tripId);
+      await DataService.discardTrip(tripId);
       await _load();
     } catch (e) {
       if (mounted) {

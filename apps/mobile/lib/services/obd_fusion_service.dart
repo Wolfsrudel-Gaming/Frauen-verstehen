@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'api_service.dart';
+import 'data_service.dart';
 import 'ble_service.dart';
 import 'elm327_client.dart';
 import 'obd2_adapter.dart';
@@ -53,7 +53,7 @@ class ObdFusionService {
     try {
       // Notify backend of session start
       final adapterName = device.platformName;
-      final session = await ApiService.startObdSession(
+      final session = await DataService.startObdSession(
         tripId: tripId,
         adapterName: adapterName.isNotEmpty ? adapterName : null,
       );
@@ -99,7 +99,7 @@ class ObdFusionService {
     // Tell backend session ended
     if (_sessionId != null && _activeTripId != null) {
       try {
-        await ApiService.endObdSession(
+        await DataService.endObdSession(
           tripId: _activeTripId!,
           sessionId: _sessionId!,
           elmProtocol: _elmProtocol,
@@ -148,7 +148,7 @@ class ObdFusionService {
     final batch = List<Map<String, dynamic>>.from(_readings);
     _readings.clear();
     try {
-      await ApiService.batchObdReadings(
+      await DataService.batchObdReadings(
         tripId: _activeTripId!,
         readings: batch,
         sessionId: _sessionId,
@@ -165,7 +165,7 @@ class ObdFusionService {
       final codes = await _obd!.readDtcs();
       if (codes.isEmpty) return;
 
-      await ApiService.reportDtcs(tripId: tripId, codes: codes);
+      await DataService.reportDtcs(tripId: tripId, codes: codes);
 
       // Push a local notification — DTC alerts bypass quiet hours
       await NotificationService.showDtcAlert(codes);

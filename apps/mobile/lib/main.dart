@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'services/api_service.dart';
+import 'services/app_mode.dart';
 import 'services/notification_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppMode.init();
   await ApiService.init();
   await NotificationService.init();
   runApp(const DriverAnalyticsApp());
@@ -47,7 +49,8 @@ class _AuthGateState extends State<_AuthGate> {
   Future<void> _check() async {
     final token = await ApiService.getToken();
     setState(() {
-      _authenticated = token != null;
+      // Offline mode skips authentication entirely
+      _authenticated = AppMode.isOffline || token != null;
       _checking = false;
     });
   }

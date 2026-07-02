@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/app_mode.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -105,9 +106,42 @@ class _LoginScreenState extends State<LoginScreen> {
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Sign In', style: TextStyle(fontSize: 16)),
             ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('oder', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                ),
+                const Expanded(child: Divider()),
+              ],
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _continueOffline,
+              icon: const Icon(Icons.cloud_off),
+              label: const Text('Offline-Modus (ohne Server)'),
+              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Alle Daten werden lokal auf dem Gerät gespeichert. '
+              'Kein Server und kein Konto nötig.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _continueOffline() async {
+    await AppMode.setOffline(true);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
   }
 }

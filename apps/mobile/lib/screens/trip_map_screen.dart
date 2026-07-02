@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import '../services/api_service.dart';
+import '../services/data_service.dart';
 
 class TripMapScreen extends StatefulWidget {
   final String tripId;
@@ -27,7 +27,7 @@ class _TripMapScreenState extends State<TripMapScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final pts = await ApiService.getTripPoints(widget.tripId);
+      final pts = await DataService.getTripPoints(widget.tripId);
       setState(() { _points = pts; });
     } catch (e) {
       setState(() { _error = e.toString().replaceFirst('Exception: ', ''); });

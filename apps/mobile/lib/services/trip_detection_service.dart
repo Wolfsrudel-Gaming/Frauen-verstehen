@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
-import 'api_service.dart';
+import 'app_mode.dart';
+import 'data_service.dart';
 import 'local_db.dart';
 import 'location_service.dart';
 
@@ -116,7 +117,7 @@ class TripDetectionService {
 
   static Future<void> _autoStart(Position pos) async {
     try {
-      final trip = await ApiService.startTrip(startTrigger: 'auto_gps');
+      final trip = await DataService.startTrip(startTrigger: 'auto_gps');
       _activeTripId = trip['id'] as String;
       _activeSegmentId = null;
       _setState(TripState.inTrip);
@@ -132,11 +133,11 @@ class TripDetectionService {
     if (_totalDistanceM < kMinTripM) {
       // Trip too short — discard
       try {
-        await ApiService.discardTrip(_activeTripId!);
+        await DataService.discardTrip(_activeTripId!);
       } catch (_) {}
     } else {
       try {
-        await ApiService.endTrip(_activeTripId!, endTrigger: 'auto_gps');
+        await DataService.endTrip(_activeTripId!, endTrigger: 'auto_gps');
       } catch (_) {}
     }
     _activeTripId = null;
@@ -170,6 +171,9 @@ class TripDetectionService {
 
   static Future<void> _syncBatch() async {
     if (_activeTripId == null) return;
+    // Offline mode: points stay in pending_points and are read locally for
+    // the map — never mark them synced without a real upload.
+    if (AppMode.isOffline) return;
     final rows = await LocalDb.getPendingPoints(_activeTripId!);
     if (rows.isEmpty) return;
 
@@ -185,7 +189,7 @@ class TripDetectionService {
         'recordedAt': r['recorded_at'],
       }).toList();
 
-      final result = await ApiService.batchPoints(
+      final result = await DataService.batchPoints(
         tripId: _activeTripId!,
         points: points,
         sourceType: 'smartphone_gps',

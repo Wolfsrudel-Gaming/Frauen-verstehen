@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
+import '../services/data_service.dart';
 
 class VehiclesScreen extends StatefulWidget {
   const VehiclesScreen({super.key});
@@ -32,7 +32,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final v = await ApiService.getVehicles();
+      final v = await DataService.getVehicles();
       setState(() { _vehicles = v; });
     } catch (e) {
       setState(() { _error = e.toString().replaceFirst('Exception: ', ''); });
@@ -49,7 +49,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
       return;
     }
     try {
-      await ApiService.createVehicle(
+      await DataService.createVehicle(
         make: _makeCtrl.text.trim(),
         model: _modelCtrl.text.trim(),
         year: _yearCtrl.text.isNotEmpty ? int.tryParse(_yearCtrl.text) : null,
