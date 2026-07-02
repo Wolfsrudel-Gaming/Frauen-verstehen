@@ -10,6 +10,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _serverCtrl = TextEditingController(text: ApiService.baseUrl);
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _totpCtrl = TextEditingController();
@@ -19,6 +20,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() { _loading = true; _error = null; });
     try {
+      if (_serverCtrl.text.trim() != ApiService.baseUrl) {
+        await ApiService.setBaseUrl(_serverCtrl.text);
+      }
       await ApiService.login(
         _usernameCtrl.text.trim(),
         _passwordCtrl.text,
@@ -55,6 +59,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: Text(_error!, style: TextStyle(color: Colors.red.shade800)),
               ),
+            TextField(
+              controller: _serverCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'http://192.168.x.x:3001',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _usernameCtrl,
               decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),

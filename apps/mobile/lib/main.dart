@@ -6,6 +6,7 @@ import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiService.init();
   await NotificationService.init();
   runApp(const DriverAnalyticsApp());
 }

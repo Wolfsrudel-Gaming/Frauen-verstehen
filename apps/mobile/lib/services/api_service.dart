@@ -2,12 +2,36 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Change this to point at your backend instance
-const String _baseUrl = 'http://10.0.2.2:3001';
+// Default backend URL: 10.0.2.2 reaches the host machine from the Android
+// emulator. On a real device set the server URL on the login screen instead.
+const String _defaultBaseUrl =
+    String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:3001');
 
 class ApiService {
   static const _tokenKey = 'auth_token';
   static const _orgIdKey = 'active_org_id';
+  static const _serverUrlKey = 'server_url';
+
+  static String _baseUrl = _defaultBaseUrl;
+  static String get baseUrl => _baseUrl;
+
+  // Load the persisted server URL — call once at app startup.
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_serverUrlKey);
+    if (saved != null && saved.isNotEmpty) _baseUrl = saved;
+  }
+
+  static Future<void> setBaseUrl(String url) async {
+    var normalized = url.trim();
+    while (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    if (normalized.isEmpty) normalized = _defaultBaseUrl;
+    _baseUrl = normalized;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_serverUrlKey, normalized);
+  }
 
   // -------------------------------------------------------------------------
   // Token management
