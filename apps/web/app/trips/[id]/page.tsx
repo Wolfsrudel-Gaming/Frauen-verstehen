@@ -53,6 +53,16 @@ type DtcEvent = {
   clearedAt: string | null;
 };
 
+type TripScore = {
+  totalScore: string;
+  confidenceWeight: string;
+  sourceType: string;
+  breakdown: {
+    metrics: Record<string, number | null>;
+    penalties: Record<string, number>;
+  };
+};
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString("de-DE", {
     day: "2-digit",
@@ -83,11 +93,12 @@ const statBox: React.CSSProperties = {
 export default async function TripDetailPage({ params }: Props) {
   const { id } = await params;
 
-  const [tripRes, pointsRes, obdRes, dtcRes] = await Promise.all([
+  const [tripRes, pointsRes, obdRes, dtcRes, scoreRes] = await Promise.all([
     backendFetch(`/trips/${id}`),
     backendFetch(`/trips/${id}/points`),
     backendFetch(`/trips/${id}/obd/readings`),
     backendFetch(`/trips/${id}/dtc`),
+    backendFetch(`/trips/${id}/score`),
   ]);
 
   if (!tripRes.ok) {
@@ -101,6 +112,7 @@ export default async function TripDetailPage({ params }: Props) {
 
   const trip: Trip = await tripRes.json();
   const rawPoints: Point[] = pointsRes.ok ? await pointsRes.json() : [];
+  const score: TripScore | null = scoreRes.ok ? await scoreRes.json() : null;
   const rawObd: ObdReadingRaw[] = obdRes.ok ? await obdRes.json() : [];
   const obdReadings: ObdReading[] = rawObd.map((r) => ({
     ...r,
@@ -221,6 +233,65 @@ export default async function TripDetailPage({ params }: Props) {
       {trip.notes && (
         <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "1.5rem" }}>
           <span style={{ fontWeight: 600 }}>Notes:</span> {trip.notes}
+        </div>
+      )}
+
+      {/* Driving score */}
+      {score && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ fontSize: 18, marginBottom: "0.75rem" }}>Fahr-Score</h2>
+          <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div
+              style={{
+                width: 96,
+                height: 96,
+                borderRadius: "50%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 28,
+                background:
+                  Number(score.totalScore) >= 80
+                    ? "#16a34a"
+                    : Number(score.totalScore) >= 60
+                      ? "#d97706"
+                      : "#dc2626",
+              }}
+            >
+              {Number(score.totalScore).toFixed(0)}
+              <span style={{ fontSize: 10, fontWeight: 500 }}>/ 100</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: "0.5rem" }}>
+                Quelle: {score.sourceType === "combined" ? "OBD + GPS" : score.sourceType.toUpperCase()}
+                {" · "}Konfidenz: {Math.round(Number(score.confidenceWeight) * 100)} %
+              </div>
+              {(
+                [
+                  ["harshAccel", "Starkes Beschleunigen"],
+                  ["harshBrake", "Starkes Bremsen"],
+                  ["smoothness", "Unruhige Fahrweise"],
+                  ["overRev", "Hohe Drehzahlen"],
+                  ["overheat", "Überhitzung"],
+                ] as const
+              )
+                .filter(([key]) => (score.breakdown.penalties[key] ?? 0) > 0)
+                .map(([key, label]) => (
+                  <div key={key} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", borderBottom: "1px solid #f3f4f6" }}>
+                    <span>{label}</span>
+                    <span style={{ color: "#dc2626", fontWeight: 600 }}>
+                      −{score.breakdown.penalties[key].toFixed(1)}
+                    </span>
+                  </div>
+                ))}
+              {Object.values(score.breakdown.penalties).every((p) => p === 0) && (
+                <div style={{ fontSize: 13, color: "#16a34a" }}>Keine Auffälligkeiten — saubere Fahrt.</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

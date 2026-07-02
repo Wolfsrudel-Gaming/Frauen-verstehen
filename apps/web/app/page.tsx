@@ -46,6 +46,7 @@ export default async function Home() {
             [
               { href: "/vehicles", label: "Vehicles" },
               { href: "/trips", label: "Trips" },
+              { href: "/leaderboard", label: "Leaderboard" },
             ] as const
           ).map(({ href, label }) => (
             <a

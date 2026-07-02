@@ -185,6 +185,91 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+  // Score badge: colored circle with the driving score, grey dot when unscored
+  Widget _scoreBadge(Map<String, dynamic> t) {
+    final scoreStr = t['score'] as String?;
+    if (scoreStr == null || t['status'] == 'discarded') {
+      return CircleAvatar(
+        backgroundColor: _statusColor(t['status'] as String),
+        radius: 8,
+      );
+    }
+    final score = double.parse(scoreStr);
+    final color = score >= 80
+        ? Colors.green
+        : score >= 60
+            ? Colors.orange
+            : Colors.red;
+    return CircleAvatar(
+      backgroundColor: color,
+      radius: 20,
+      child: Text(
+        score.toStringAsFixed(0),
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+      ),
+    );
+  }
+
+  // Backend sends numeric columns as strings; local SQLite stores them as num
+  String _confidencePct(dynamic v) {
+    if (v == null) return '—';
+    final n = v is String ? double.tryParse(v) : (v as num).toDouble();
+    return n != null ? '${(n * 100).round()} %' : '—';
+  }
+
+  static const _penaltyLabels = {
+    'harshAccel': 'Starkes Beschleunigen',
+    'harshBrake': 'Starkes Bremsen',
+    'smoothness': 'Unruhige Fahrweise',
+    'overRev': 'Hohe Drehzahlen',
+    'overheat': 'Überhitzung',
+  };
+
+  void _showScoreDialog(Map<String, dynamic> t) {
+    final breakdown = t['scoreBreakdown'] as Map<String, dynamic>?;
+    if (breakdown == null) return;
+    final penalties = (breakdown['penalties'] as Map<String, dynamic>?) ?? {};
+    final metrics = (breakdown['metrics'] as Map<String, dynamic>?) ?? {};
+    final activePenalties = penalties.entries.where((e) => (e.value as num) > 0).toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Fahr-Score: ${t['score']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (activePenalties.isEmpty)
+              const Text('Keine Auffälligkeiten — saubere Fahrt!',
+                  style: TextStyle(color: Colors.green)),
+            ...activePenalties.map((e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_penaltyLabels[e.key] ?? e.key),
+                      Text('−${(e.value as num).toStringAsFixed(1)}',
+                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                )),
+            const Divider(height: 20),
+            Text(
+              'GPS-Punkte: ${metrics['points'] ?? '—'} · '
+              'OBD: ${metrics['obdReadings'] ?? 0} · '
+              'Konfidenz: ${_confidencePct(t['scoreConfidence'])}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+  }
+
 
 
   @override
@@ -329,15 +414,13 @@ class _TripsScreenState extends State<TripsScreen> {
                       ...(_trips.where((t) => t['status'] != 'in_progress').map((t) => Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: _statusColor(t['status'] as String),
-                                radius: 8,
-                              ),
+                              leading: _scoreBadge(t),
                               title: Text(_formatDate(t['startedAt'] as String), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               subtitle: Text(
                                 '${_duration(t['startedAt'] as String, t['endedAt'] as String?)}${t['distanceKm'] != null ? ' · ${double.parse(t['distanceKm'] as String).toStringAsFixed(1)} km' : ''}',
                                 style: const TextStyle(fontSize: 13),
                               ),
+                              onTap: t['scoreBreakdown'] != null ? () => _showScoreDialog(t) : null,
                               trailing: IconButton(
                                 icon: const Icon(Icons.map, color: Colors.blue),
                                 tooltip: 'View on map',

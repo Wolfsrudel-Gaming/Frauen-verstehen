@@ -252,6 +252,47 @@ export const dtcEvents = pgTable("dtc_events", {
 });
 
 // ---------------------------------------------------------------------------
+// Scoring (M5)
+// ---------------------------------------------------------------------------
+
+// Admin-configurable scoring weights/thresholds. One active definition per
+// org; the engine falls back to built-in defaults when none exists.
+export const scoreDefinitions = pgTable("score_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default("default"),
+  // e.g. { harshAccel: 2.0, harshBrake: 2.5, smoothness: 5.0, overRev: 50, overheat: 10 }
+  weights: jsonb("weights").notNull(),
+  // e.g. { harshAccelMs2: 2.5, harshBrakeMs2: -3.0, overRevRpm: 4000, overheatC: 105 }
+  thresholds: jsonb("thresholds").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const tripScores = pgTable("trip_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tripId: uuid("trip_id")
+    .notNull()
+    .unique()
+    .references(() => trips.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  driverUserId: uuid("driver_user_id").references(() => users.id, { onDelete: "set null" }),
+  totalScore: numeric("total_score").notNull(), // 0..100
+  // Per-metric penalties + raw metric values for transparency in the UI
+  breakdown: jsonb("breakdown").notNull(),
+  // 0..1 — lower for GPS-only or sparse data; leaderboards weight by this
+  confidenceWeight: numeric("confidence_weight").notNull(),
+  // 'combined' | 'obd' | 'gps'
+  sourceType: text("source_type").notNull().default("gps"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Audit log — append-only, org_id nullable for global/system events
 // ---------------------------------------------------------------------------
 

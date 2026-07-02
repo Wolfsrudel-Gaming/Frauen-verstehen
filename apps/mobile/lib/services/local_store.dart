@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:math';
 import 'package:geolocator/geolocator.dart';
 import 'local_db.dart';
+import 'scoring_service.dart';
 
 // Local persistence for offline mode. Returns maps in the exact same shape
 // as the backend API (including numeric values as strings where Postgres
@@ -104,6 +106,10 @@ class LocalStore {
   }) async {
     final db = await LocalDb.db;
     final distanceKm = await _tripDistanceKm(tripId);
+
+    // Score the trip locally — same algorithm as the backend engine
+    final score = await _computeScore(tripId, distanceKm ?? 0);
+
     await db.update(
       'local_trips',
       {
@@ -112,12 +118,47 @@ class LocalStore {
         'ended_at': DateTime.now().toUtc().toIso8601String(),
         'end_odometer': endOdometer,
         'distance_km': distanceKm,
+        if (score != null) 'score': score.totalScore,
+        if (score != null) 'score_breakdown': jsonEncode(score.breakdown),
+        if (score != null) 'score_confidence': score.confidenceWeight,
+        if (score != null) 'score_source': score.sourceType,
       },
       where: 'id = ?',
       whereArgs: [tripId],
     );
     final rows = await db.query('local_trips', where: 'id = ?', whereArgs: [tripId]);
     return _tripToApi(rows.first);
+  }
+
+  static Future<TripScoreResult?> _computeScore(String tripId, double distanceKm) async {
+    try {
+      final pointRows = await _pointRows(tripId);
+      final gps = pointRows
+          .map((r) => GpsSample(
+                speedKmh: r['speed_kmh'] as double?,
+                recordedAt: DateTime.parse(r['recorded_at'] as String),
+              ))
+          .toList();
+
+      final db = await LocalDb.db;
+      final obdRows = await db.query(
+        'local_obd_readings',
+        where: 'trip_id = ?',
+        whereArgs: [tripId],
+        orderBy: 'recorded_at ASC',
+      );
+      final obd = obdRows
+          .map((r) => ObdSample(
+                rpmX4: r['rpm_x4'] as int?,
+                coolantTempC: r['coolant_temp_c'] as int?,
+                recordedAt: DateTime.parse(r['recorded_at'] as String),
+              ))
+          .toList();
+
+      return ScoringService.computeTripScore(gps, obd, distanceKm);
+    } catch (_) {
+      return null; // scoring must never break trip end
+    }
   }
 
   static Future<void> discardTrip(String tripId) async {
@@ -158,6 +199,12 @@ class LocalStore {
         // The backend serialises Postgres numeric as string — mirror that.
         'distanceKm': r['distance_km'] != null ? (r['distance_km'] as double).toStringAsFixed(3) : null,
         'notes': r['notes'],
+        'score': r['score'] != null ? (r['score'] as double).toStringAsFixed(1) : null,
+        'scoreBreakdown': r['score_breakdown'] != null
+            ? jsonDecode(r['score_breakdown'] as String)
+            : null,
+        'scoreConfidence': r['score_confidence'],
+        'scoreSource': r['score_source'],
       };
 
   // ---------------------------------------------------------------------

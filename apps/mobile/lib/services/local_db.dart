@@ -15,10 +15,35 @@ class LocalDb {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'driver_analytics.db'),
-      version: 2,
-      onCreate: (db, version) => _createTables(db),
-      onUpgrade: (db, oldVersion, newVersion) => _createTables(db),
+      version: 3,
+      onCreate: (db, version) async {
+        await _createTables(db);
+        await _migrate(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _createTables(db);
+        await _migrate(db);
+      },
     );
+  }
+
+  // Column additions for existing installs. ALTER TABLE ADD COLUMN throws if
+  // the column already exists — swallow that so migrations stay idempotent.
+  static Future<void> _migrate(Database db) async {
+    const alters = [
+      // v3: offline trip scoring
+      "ALTER TABLE local_trips ADD COLUMN score REAL",
+      "ALTER TABLE local_trips ADD COLUMN score_breakdown TEXT",
+      "ALTER TABLE local_trips ADD COLUMN score_confidence REAL",
+      "ALTER TABLE local_trips ADD COLUMN score_source TEXT",
+    ];
+    for (final stmt in alters) {
+      try {
+        await db.execute(stmt);
+      } catch (_) {
+        // column already exists
+      }
+    }
   }
 
   // All CREATE TABLE statements are idempotent so onCreate and onUpgrade

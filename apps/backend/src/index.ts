@@ -8,6 +8,7 @@ import vehicleRoutes from "./modules/vehicles/routes.js";
 import tripRoutes from "./modules/trips/routes.js";
 import trackingRoutes from "./modules/tracking/routes.js";
 import obdRoutes from "./modules/obd/routes.js";
+import scoringRoutes from "./modules/scoring/routes.js";
 
 const app = Fastify({ logger: true });
 
@@ -30,6 +31,7 @@ await app.register(vehicleRoutes);
 await app.register(tripRoutes);
 await app.register(trackingRoutes);
 await app.register(obdRoutes);
+await app.register(scoringRoutes);
 
 app.listen({ port: env.port, host: "0.0.0.0" }).catch((err) => {
   app.log.error(err);

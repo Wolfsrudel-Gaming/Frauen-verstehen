@@ -1,16 +1,27 @@
 import type { FastifyInstance } from "fastify";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, getTableColumns } from "drizzle-orm";
 import { withOrg } from "../../db/with-org.js";
-import { trips } from "../../db/schema.js";
+import { trips, tripScores } from "../../db/schema.js";
+import { scoreAndStoreTrip } from "../scoring/service.js";
 
 export default async function tripRoutes(app: FastifyInstance) {
   // -----------------------------------------------------------------------
-  // GET /trips — list trips in current org (most recent first)
+  // GET /trips — list trips in current org (most recent first), incl. score
   // -----------------------------------------------------------------------
   app.get("/trips", { preHandler: [app.authenticate] }, async (req) => {
     const { orgId, sub } = req.user;
     return withOrg(orgId, sub, (tx) =>
-      tx.select().from(trips).where(eq(trips.orgId, orgId)).orderBy(desc(trips.startedAt)),
+      tx
+        .select({
+          ...getTableColumns(trips),
+          score: tripScores.totalScore,
+          scoreConfidence: tripScores.confidenceWeight,
+          scoreSource: tripScores.sourceType,
+        })
+        .from(trips)
+        .leftJoin(tripScores, eq(tripScores.tripId, trips.id))
+        .where(eq(trips.orgId, orgId))
+        .orderBy(desc(trips.startedAt)),
     );
   });
 
@@ -108,7 +119,9 @@ export default async function tripRoutes(app: FastifyInstance) {
             status: "completed",
             endedAt: new Date(),
             endOdometer: endOdometer ?? null,
-            distanceKm: distanceKm ?? null,
+            // Keep the distance accumulated from GPS points unless the
+            // client explicitly provides one.
+            distanceKm: distanceKm ?? existing.distanceKm,
             endTrigger,
             notes: notes ?? existing.notes,
             updatedAt: new Date(),
@@ -118,6 +131,13 @@ export default async function tripRoutes(app: FastifyInstance) {
       });
 
       if (!trip) return reply.code(404).send({ error: "Trip not found or already ended" });
+
+      // Score the completed trip. Failures must never fail the trip end.
+      try {
+        await withOrg(orgId, sub, (tx) => scoreAndStoreTrip(tx, orgId, trip.id));
+      } catch (err) {
+        req.log.warn({ err, tripId: trip.id }, "trip scoring failed");
+      }
       return trip;
     },
   );
