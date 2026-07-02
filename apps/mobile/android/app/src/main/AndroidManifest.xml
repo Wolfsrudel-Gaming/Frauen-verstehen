@@ -1,11 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Bluetooth permissions                                                -->
-    <!-- Android 12+ (API 31+): fine-grained BLE permissions                 -->
-    <!-- neverForLocation: we use BLE for OBD, not for locating the user     -->
-    <!-- ------------------------------------------------------------------ -->
+    <!-- Bluetooth permissions.
+         Android 12+ (API 31+): fine-grained BLE permissions.
+         neverForLocation: we use BLE for OBD, not for locating the user. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
