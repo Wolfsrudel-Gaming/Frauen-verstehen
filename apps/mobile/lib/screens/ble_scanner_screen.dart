@@ -101,8 +101,8 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'Select your Carista / ELM327 adapter below.\n'
-              'Make sure Bluetooth is enabled and the adapter is plugged into the OBD port.',
+              'Wähle deinen Carista / ELM327-Adapter aus der Liste.\n'
+              'Der Adapter muss im OBD-Port stecken und die Zündung an sein.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
           ),
@@ -110,8 +110,21 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
             child: _devices.isEmpty
                 ? Center(
                     child: _scanning
-                        ? const Text('Scanning for BLE devices…')
-                        : const Text('No devices found. Tap refresh to scan again.'),
+                        ? const Text('Suche BLE-Geräte…')
+                        : Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              'Keine Geräte gefunden.\n\n'
+                              'Prüfe:\n'
+                              '• Bluetooth ist eingeschaltet\n'
+                              '• Standort (GPS) ist an — auf Android 11 und älter '
+                              'nötig für BLE-Scans\n'
+                              '• Der Adapter steckt im OBD-Port und die Zündung ist an\n'
+                              '• Der Adapter ist nicht bereits mit einer anderen App verbunden\n\n'
+                              'Dann oben rechts neu scannen.',
+                              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                            ),
+                          ),
                   )
                 : ListView.builder(
                     itemCount: _devices.length,

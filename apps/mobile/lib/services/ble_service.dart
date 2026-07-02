@@ -56,36 +56,82 @@ class BleService {
 
   // -------------------------------------------------------------------------
   // Scan for BLE devices (returns a stream of discovered devices).
-  // Shows ALL named devices; the user can filter/pick in the UI.
+  //
+  // Shows ALL devices — many OBD adapters advertise without a name, so
+  // unnamed devices must not be filtered out.
+  //
+  // NOTE: FlutterBluePlus.startScan() completes when scanning STARTS, not
+  // when it ends — the end-of-scan signal is isScanning going false.
   // -------------------------------------------------------------------------
   static Stream<DiscoveredDevice> scan({Duration timeout = const Duration(seconds: 12)}) {
     final controller = StreamController<DiscoveredDevice>();
-    StreamSubscription? innerSub;
+    StreamSubscription? resultsSub;
+    StreamSubscription? scanningSub;
 
-    FlutterBluePlus.startScan(timeout: timeout).then((_) {
-      innerSub?.cancel();
-      if (!controller.isClosed) controller.close();
-    }).catchError((Object e) {
-      if (!controller.isClosed) controller.addError(e);
-    });
+    Future<void> cleanup() async {
+      await resultsSub?.cancel();
+      await scanningSub?.cancel();
+      if (!controller.isClosed) await controller.close();
+    }
 
-    innerSub = FlutterBluePlus.scanResults.listen((results) {
-      for (final r in results) {
-        if (r.device.platformName.isNotEmpty) {
-          controller.add(DiscoveredDevice(
-            device: r.device,
-            name: r.device.platformName,
-            rssi: r.rssi,
-            serviceUuids: r.advertisementData.serviceUuids
-                .map((u) => u.str128.toLowerCase())
-                .toList(),
-          ));
+    Future<void> run() async {
+      // Make sure the Bluetooth adapter is on (Android shows a system prompt)
+      var state = await FlutterBluePlus.adapterState
+          .where((s) => s != BluetoothAdapterState.unknown)
+          .first
+          .timeout(const Duration(seconds: 5), onTimeout: () => BluetoothAdapterState.off);
+      if (state != BluetoothAdapterState.on) {
+        try {
+          await FlutterBluePlus.turnOn();
+          state = await FlutterBluePlus.adapterState
+              .where((s) => s == BluetoothAdapterState.on)
+              .first
+              .timeout(const Duration(seconds: 10));
+        } catch (_) {
+          throw Exception('Bluetooth ist ausgeschaltet. Bitte einschalten und erneut scannen.');
         }
       }
+
+      resultsSub = FlutterBluePlus.scanResults.listen(
+        (results) {
+          if (controller.isClosed) return;
+          for (final r in results) {
+            final name = r.device.platformName.isNotEmpty
+                ? r.device.platformName
+                : (r.advertisementData.advName.isNotEmpty
+                    ? r.advertisementData.advName
+                    : '(Unbenanntes Gerät)');
+            controller.add(DiscoveredDevice(
+              device: r.device,
+              name: name,
+              rssi: r.rssi,
+              serviceUuids: r.advertisementData.serviceUuids
+                  .map((u) => u.str128.toLowerCase())
+                  .toList(),
+            ));
+          }
+        },
+        onError: (Object e) {
+          if (!controller.isClosed) controller.addError(e);
+          cleanup();
+        },
+      );
+
+      // End of scan = isScanning flips to false (timeout timer or stopScan)
+      await FlutterBluePlus.startScan(timeout: timeout);
+      scanningSub = FlutterBluePlus.isScanning
+          .where((scanning) => scanning == false)
+          .listen((_) => cleanup());
+    }
+
+    run().catchError((Object e) {
+      if (!controller.isClosed) controller.addError(e);
+      cleanup();
     });
 
     controller.onCancel = () {
-      innerSub?.cancel();
+      resultsSub?.cancel();
+      scanningSub?.cancel();
       FlutterBluePlus.stopScan();
     };
 
