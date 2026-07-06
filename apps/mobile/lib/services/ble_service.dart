@@ -174,18 +174,114 @@ class BleService {
       final notifyChar = _findChar(svc, Guid(profile.notify));
       if (writeChar == null || notifyChar == null) continue;
 
-      _writeChar = writeChar;
-      _notifyChar = notifyChar;
-
-      await notifyChar.setNotifyValue(true);
-      notifyChar.lastValueStream.listen(_rxController.add);
-
+      await _wireUp(writeChar, notifyChar);
       return profile;
     }
 
-    // No ELM327 profile found — leave BLE connection open so the BLE
-    // Inspector screen can call inspectServices() on this device.
+    // Unknown adapter (e.g. Carista EVO with proprietary UUIDs): probe all
+    // write/notify characteristic pairs with a real ELM327 command and use
+    // the first pair that answers. The working pair is persisted as the
+    // custom profile so future connects skip the probing.
+    final detected = await _autoDetectProfile(services);
+    if (detected != null) return detected;
+
+    // Nothing worked — leave BLE connection open so the BLE Inspector
+    // screen can enumerate services on this device.
     return null;
+  }
+
+  // Wire the characteristic pair to the shared RX stream.
+  // onValueReceived (not lastValueStream) — no stale-value replay.
+  static Future<void> _wireUp(
+    BluetoothCharacteristic writeChar,
+    BluetoothCharacteristic notifyChar,
+  ) async {
+    _writeChar = writeChar;
+    _notifyChar = notifyChar;
+    await notifyChar.setNotifyValue(true);
+    notifyChar.onValueReceived.listen(_rxController.add);
+  }
+
+  // ---------------------------------------------------------------------
+  // Generic ELM327 characteristic auto-detection
+  // ---------------------------------------------------------------------
+  static const _kStandardServices = {'1800', '1801', '180a', '180f', '1804', '1805'};
+  static const _kMaxProbes = 8;
+
+  static Future<_BleProfile?> _autoDetectProfile(List<BluetoothService> services) async {
+    // Collect candidate (write, notify) pairs from non-standard services
+    final candidates = <List<BluetoothCharacteristic>>[];
+    for (final svc in services) {
+      final shortUuid = svc.uuid.str.toLowerCase();
+      if (_kStandardServices.contains(shortUuid)) continue;
+
+      final writes = svc.characteristics
+          .where((c) => c.properties.write || c.properties.writeWithoutResponse)
+          .toList();
+      final notifies = svc.characteristics
+          .where((c) => c.properties.notify || c.properties.indicate)
+          .toList();
+
+      for (final n in notifies) {
+        for (final w in writes) {
+          candidates.add([w, n]);
+        }
+      }
+    }
+
+    // Single-characteristic UART bridges (write+notify on one char) first —
+    // fewer candidates and the most common layout after the known profiles.
+    candidates.sort((a, b) {
+      final aSame = a[0].uuid == a[1].uuid ? 0 : 1;
+      final bSame = b[0].uuid == b[1].uuid ? 0 : 1;
+      return aSame.compareTo(bSame);
+    });
+
+    for (final pair in candidates.take(_kMaxProbes)) {
+      final w = pair[0];
+      final n = pair[1];
+      if (await _probePair(w, n)) {
+        await _wireUp(w, n);
+        // Persist so the next connect matches immediately
+        await saveCustomProfile(w.serviceUuid.str128, w.uuid.str128, n.uuid.str128);
+        return _BleProfile(
+          service: w.serviceUuid.str128,
+          write: w.uuid.str128,
+          notify: n.uuid.str128,
+        );
+      }
+    }
+    return null;
+  }
+
+  // Sends an ELM327 identify command and waits for ANY notification bytes.
+  // A real ELM327-compatible bridge answers ATI within a few hundred ms.
+  static Future<bool> _probePair(
+    BluetoothCharacteristic w,
+    BluetoothCharacteristic n,
+  ) async {
+    StreamSubscription<List<int>>? sub;
+    try {
+      await n.setNotifyValue(true);
+      final completer = Completer<bool>();
+      sub = n.onValueReceived.listen((data) {
+        if (data.isNotEmpty && !completer.isCompleted) completer.complete(true);
+      });
+      await w.write(utf8.encode('ATI\r'),
+          withoutResponse: w.properties.writeWithoutResponse);
+      final ok = await completer.future
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+      if (!ok) {
+        try {
+          await n.setNotifyValue(false);
+        } catch (_) {}
+      }
+      return ok;
+    } catch (_) {
+      return false;
+    } finally {
+      await sub?.cancel();
+    }
   }
 
   // -------------------------------------------------------------------------

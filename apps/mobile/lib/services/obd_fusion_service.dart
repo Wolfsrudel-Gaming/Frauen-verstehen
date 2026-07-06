@@ -45,8 +45,9 @@ class ObdFusionService {
     final profile = await BleService.connect(device);
     if (profile == null) {
       throw Exception(
-        'Could not find ELM327 characteristics on this device.\n'
-        'Use the BLE Inspector to identify the correct UUIDs, then save them.',
+        'Keine ELM327-Schnittstelle auf diesem Gerät gefunden — auch die '
+        'automatische Erkennung blieb erfolglos.\n'
+        'Prüfe, ob Zündung an ist, und versuche es erneut. Details siehe BLE Inspector.',
       );
     }
 
