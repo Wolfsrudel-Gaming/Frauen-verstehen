@@ -8,6 +8,9 @@ on:
       - "apps/mobile/**"
       - ".github/workflows/android-apk.yml"
 
+permissions:
+  contents: write # needed to publish the APK as a release asset
+
 jobs:
   apk:
     name: Build release APK
@@ -39,3 +42,16 @@ jobs:
           name: driver-analytics-apk
           path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+
+      # Also publish to a rolling "apk-latest" release so the APK can be
+      # downloaded WITHOUT a GitHub login (artifacts require one):
+      # https://github.com/<owner>/<repo>/releases/download/apk-latest/app-release.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: Driver Analytics APK (neueste Version)
+          body: |
+            Automatisch gebaute Test-APK vom letzten Push (${{ github.sha }}).
+            Direkt herunterladen und installieren — kein GitHub-Login nötig.
+          prerelease: true
+          files: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
