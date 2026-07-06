@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
@@ -20,15 +22,38 @@ class LocationService {
         permission == LocationPermission.always;
   }
 
+  static LocationSettings _settings() {
+    if (!kIsWeb && Platform.isAndroid) {
+      // Foreground service keeps GPS updates flowing with the screen off /
+      // app in background — essential for recording real trips.
+      return AndroidSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 5,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'Fahrt wird aufgezeichnet',
+          notificationText: 'GPS-Tracking aktiv',
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    if (!kIsWeb && Platform.isIOS) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 5,
+        activityType: ActivityType.automotiveNavigation,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    }
+    return const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5);
+  }
+
   static Future<void> startTracking() async {
     if (_sub != null) return;
 
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // emit every 5+ metres moved
-    );
-
-    _sub = Geolocator.getPositionStream(locationSettings: settings).listen(
+    _sub = Geolocator.getPositionStream(locationSettings: _settings()).listen(
       _controller.add,
       onError: _controller.addError,
     );

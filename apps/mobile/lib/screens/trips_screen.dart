@@ -5,6 +5,7 @@ import '../services/obd_fusion_service.dart';
 import '../services/trip_detection_service.dart';
 import 'ble_scanner_screen.dart';
 import 'live_obd_screen.dart';
+import 'live_trip_screen.dart';
 import 'trip_map_screen.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -84,12 +85,29 @@ class _TripsScreenState extends State<TripsScreen> {
   Future<void> _startTrip() async {
     setState(() { _actionLoading = true; });
     try {
-      await DataService.startTrip(
+      final trip = await DataService.startTrip(
         vehicleId: _selectedVehicleId,
         startOdometer: _odoCtrl.text.isNotEmpty ? int.tryParse(_odoCtrl.text) : null,
       );
       _odoCtrl.clear();
+      final tripId = trip['id'] as String;
+
+      // Start GPS recording for the manual trip and jump to the live view
+      String? gpsWarning;
+      try {
+        await TripDetectionService.attachManual(tripId);
+      } catch (e) {
+        gpsWarning = e.toString().replaceFirst('Exception: ', '');
+      }
+
       await _load();
+      if (!mounted) return;
+      if (gpsWarning != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(gpsWarning)));
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -101,9 +119,32 @@ class _TripsScreenState extends State<TripsScreen> {
     }
   }
 
+  Future<void> _openLiveView(String tripId) async {
+    // After an app restart the recorder may not be attached anymore —
+    // re-attach so the live view has data again.
+    if (!TripDetectionService.isManualRecording &&
+        !(_autoDetect && _autoState == TripState.inTrip)) {
+      try {
+        await TripDetectionService.attachManual(tripId);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+          );
+        }
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)),
+    );
+  }
+
   Future<void> _endTrip(String tripId) async {
     setState(() { _actionLoading = true; });
     try {
+      // Stop GPS recording first so the final buffer is flushed
+      await TripDetectionService.detachManual();
       await DataService.endTrip(
         tripId,
         endOdometer: _endOdoCtrl.text.isNotEmpty ? int.tryParse(_endOdoCtrl.text) : null,
@@ -141,6 +182,7 @@ class _TripsScreenState extends State<TripsScreen> {
 
     setState(() { _actionLoading = true; });
     try {
+      await TripDetectionService.detachManual();
       await DataService.discardTrip(tripId);
       await _load();
     } catch (e) {
@@ -328,6 +370,20 @@ class _TripsScreenState extends State<TripsScreen> {
                                 const Text('Active Trip', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                 const SizedBox(height: 4),
                                 Text('Started: ${_formatDate(active['startedAt'] as String)}', style: const TextStyle(fontSize: 13)),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _openLiveView(active['id'] as String),
+                                    icon: const Icon(Icons.navigation),
+                                    label: const Text('Live-Ansicht (Karte, Tacho, OBD)'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.black87,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                  ),
+                                ),
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _endOdoCtrl,
