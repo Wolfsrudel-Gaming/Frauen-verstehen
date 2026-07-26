@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/data_service.dart';
+import 'vehicle_detail_screen.dart';
 
 class VehiclesScreen extends StatefulWidget {
   const VehiclesScreen({super.key});
@@ -178,6 +179,10 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                                 ],
                               ],
                             ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => VehicleDetailScreen(vehicle: v),
+                            )).then((_) => _load()),
                           ),
                         );
                       },

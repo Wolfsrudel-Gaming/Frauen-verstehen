@@ -292,6 +292,91 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
+  // Detail + stats reads
+  // -------------------------------------------------------------------------
+
+  static Future<Map<String, dynamic>> getTrip(String tripId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/trips/$tripId'),
+      headers: await _authedHeaders(),
+    );
+    return await _handleResponse(res) as Map<String, dynamic>;
+  }
+
+  static Future<List<Map<String, dynamic>>> getTripObdReadings(String tripId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/trips/$tripId/obd/readings'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  static Future<List<Map<String, dynamic>>> getTripDtcs(String tripId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/trips/$tripId/dtc'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  static Future<List<Map<String, dynamic>>> getVehicleDtcs(String vehicleId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/vehicles/$vehicleId/dtc'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  static Future<int> clearVehicleDtcs(String vehicleId) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/vehicles/$vehicleId/dtc/clear'),
+      headers: await _authedHeaders(),
+    );
+    final data = await _handleResponse(res) as Map<String, dynamic>;
+    return (data['cleared'] as num?)?.toInt() ?? 0;
+  }
+
+  static Future<Map<String, dynamic>> getOverviewStats() async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/stats/overview'),
+      headers: await _authedHeaders(),
+    );
+    return await _handleResponse(res) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> getVehicleStats(String vehicleId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/vehicles/$vehicleId/stats'),
+      headers: await _authedHeaders(),
+    );
+    return await _handleResponse(res) as Map<String, dynamic>;
+  }
+
+  static Future<List<Map<String, dynamic>>> getVehicleTrips(String vehicleId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/vehicles/$vehicleId/trips'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  static Future<List<Map<String, dynamic>>> getLeaderboard({
+    String range = 'month',
+    String source = 'all',
+  }) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/leaderboard?range=$range&source=$source'),
+      headers: await _authedHeaders(),
+    );
+    final list = await _handleResponse(res) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  // -------------------------------------------------------------------------
   // DTC reporting
   // -------------------------------------------------------------------------
 

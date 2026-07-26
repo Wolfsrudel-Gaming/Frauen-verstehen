@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/app_mode.dart';
+import 'dashboard_screen.dart';
 import 'login_screen.dart';
 import 'vehicles_screen.dart';
 import 'trips_screen.dart';
@@ -17,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _me;
 
   final List<Widget> _screens = [
+    const DashboardScreen(),
     const TripsScreen(),
     const VehiclesScreen(),
   ];
@@ -95,8 +97,9 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (i) => setState(() => _selectedIndex = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.route), label: 'Trips'),
-          NavigationDestination(icon: Icon(Icons.directions_car), label: 'Vehicles'),
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Übersicht'),
+          NavigationDestination(icon: Icon(Icons.route), label: 'Fahrten'),
+          NavigationDestination(icon: Icon(Icons.directions_car), label: 'Fahrzeuge'),
         ],
       ),
     );

@@ -259,6 +259,172 @@ class LocalStore {
     await batch.commit(noResult: true);
   }
 
+  // ---------------------------------------------------------------------
+  // Reads for the detail/stats screens
+  // ---------------------------------------------------------------------
+  static Future<List<Map<String, dynamic>>> getTripObdReadings(String tripId) async {
+    final db = await LocalDb.db;
+    final rows = await db.query(
+      'local_obd_readings',
+      where: 'trip_id = ?',
+      whereArgs: [tripId],
+      orderBy: 'recorded_at ASC',
+    );
+    return rows
+        .map((r) => {
+              'recordedAt': r['recorded_at'],
+              'rpmX4': r['rpm_x4'],
+              'speedKmh': r['speed_kmh'],
+              'coolantTempC': r['coolant_temp_c'],
+              // Backend returns numerics as strings — mirror that
+              'throttlePos': r['throttle_pos']?.toString(),
+              'fuelLevelPct': r['fuel_level_pct']?.toString(),
+              'intakeAirTempC': r['intake_air_temp_c'],
+              'mafGps': r['maf_gps']?.toString(),
+            })
+        .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getTripDtcs(String tripId) async {
+    final db = await LocalDb.db;
+    final rows = await db.query(
+      'local_dtc_events',
+      where: 'trip_id = ?',
+      whereArgs: [tripId],
+      orderBy: 'detected_at ASC',
+    );
+    return rows.map(_dtcToApi).toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getVehicleDtcs(String vehicleId) async {
+    final db = await LocalDb.db;
+    final rows = await db.query(
+      'local_dtc_events',
+      where: 'vehicle_id = ? AND cleared_at IS NULL',
+      whereArgs: [vehicleId],
+      orderBy: 'detected_at DESC',
+    );
+    return rows.map(_dtcToApi).toList();
+  }
+
+  static Future<int> clearVehicleDtcs(String vehicleId) async {
+    final db = await LocalDb.db;
+    return db.update(
+      'local_dtc_events',
+      {'cleared_at': DateTime.now().toUtc().toIso8601String()},
+      where: 'vehicle_id = ? AND cleared_at IS NULL',
+      whereArgs: [vehicleId],
+    );
+  }
+
+  static Map<String, dynamic> _dtcToApi(Map<String, dynamic> r) => {
+        'code': r['code'],
+        'severity': r['severity'],
+        'detectedAt': r['detected_at'],
+        'clearedAt': r['cleared_at'],
+        'vehicleId': r['vehicle_id'],
+        'tripId': r['trip_id'],
+        'description': null,
+      };
+
+  static Future<Map<String, dynamic>> getTrip(String tripId) async {
+    final db = await LocalDb.db;
+    final rows = await db.query('local_trips', where: 'id = ?', whereArgs: [tripId]);
+    if (rows.isEmpty) throw Exception('Fahrt nicht gefunden');
+    return _tripToApi(rows.first);
+  }
+
+  // ---------------------------------------------------------------------
+  // Aggregate stats — mirrors GET /stats/overview
+  // ---------------------------------------------------------------------
+  static Future<Map<String, dynamic>> getOverviewStats() async {
+    final db = await LocalDb.db;
+
+    final tripAgg = await db.rawQuery('''
+      SELECT COUNT(*) AS c,
+             COALESCE(SUM(distance_km), 0) AS km,
+             COALESCE(SUM(
+               (julianday(ended_at) - julianday(started_at)) * 24
+             ), 0) AS hours
+      FROM local_trips WHERE status = 'completed'
+    ''');
+
+    final scoreAgg = await db.rawQuery('''
+      SELECT SUM(score * score_confidence) AS weighted,
+             SUM(score_confidence) AS conf,
+             COUNT(*) AS c,
+             MAX(score) AS best
+      FROM local_trips WHERE score IS NOT NULL
+    ''');
+
+    final vehicleAgg =
+        await db.rawQuery('SELECT COUNT(*) AS c FROM local_vehicles WHERE is_active = 1');
+    final dtcAgg = await db
+        .rawQuery('SELECT COUNT(*) AS c FROM local_dtc_events WHERE cleared_at IS NULL');
+    final obdAgg = await db.rawQuery('SELECT COUNT(*) AS c FROM local_obd_readings');
+
+    final weighted = (scoreAgg.first['weighted'] as num?)?.toDouble();
+    final conf = (scoreAgg.first['conf'] as num?)?.toDouble();
+    final avgScore = (weighted != null && conf != null && conf > 0) ? weighted / conf : null;
+
+    double round1(num v) => (v * 10).round() / 10;
+
+    return {
+      'tripCount': (tripAgg.first['c'] as num).toInt(),
+      'totalKm': round1((tripAgg.first['km'] as num).toDouble()),
+      'totalHours': round1((tripAgg.first['hours'] as num).toDouble()),
+      'avgScore': avgScore != null ? round1(avgScore) : null,
+      'bestScore': (scoreAgg.first['best'] as num?) != null
+          ? round1((scoreAgg.first['best'] as num).toDouble())
+          : null,
+      'scoredTrips': (scoreAgg.first['c'] as num).toInt(),
+      'activeVehicles': (vehicleAgg.first['c'] as num).toInt(),
+      'openDtcs': (dtcAgg.first['c'] as num).toInt(),
+      'obdReadings': (obdAgg.first['c'] as num).toInt(),
+    };
+  }
+
+  static Future<Map<String, dynamic>> getVehicleStats(String vehicleId) async {
+    final db = await LocalDb.db;
+    final agg = await db.rawQuery('''
+      SELECT COUNT(*) AS c,
+             COALESCE(SUM(distance_km), 0) AS km,
+             MAX(started_at) AS last_at,
+             SUM(score * score_confidence) AS weighted,
+             SUM(score_confidence) AS conf
+      FROM local_trips
+      WHERE vehicle_id = ? AND status = 'completed'
+    ''', [vehicleId]);
+    final dtcAgg = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM local_dtc_events WHERE vehicle_id = ? AND cleared_at IS NULL',
+      [vehicleId],
+    );
+
+    final weighted = (agg.first['weighted'] as num?)?.toDouble();
+    final conf = (agg.first['conf'] as num?)?.toDouble();
+    final avgScore = (weighted != null && conf != null && conf > 0) ? weighted / conf : null;
+
+    return {
+      'tripCount': (agg.first['c'] as num).toInt(),
+      'totalKm': ((agg.first['km'] as num).toDouble() * 10).round() / 10,
+      'lastTripAt': agg.first['last_at'],
+      'avgScore': avgScore != null ? (avgScore * 10).round() / 10 : null,
+      'openDtcs': (dtcAgg.first['c'] as num).toInt(),
+    };
+  }
+
+  static Future<List<Map<String, dynamic>>> getVehicleTrips(String vehicleId) async {
+    final db = await LocalDb.db;
+    final rows = await db.query(
+      'local_trips',
+      where: 'vehicle_id = ?',
+      whereArgs: [vehicleId],
+      orderBy: 'started_at DESC',
+      limit: 50,
+    );
+    return rows.map(_tripToApi).toList();
+  }
+
   static Future<void> reportDtcs(String tripId, List<String> codes, {String? vehicleId}) async {
     final db = await LocalDb.db;
     final now = DateTime.now().toUtc().toIso8601String();

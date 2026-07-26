@@ -6,6 +6,7 @@ import '../services/trip_detection_service.dart';
 import 'ble_scanner_screen.dart';
 import 'live_obd_screen.dart';
 import 'live_trip_screen.dart';
+import 'trip_detail_screen.dart';
 import 'trip_map_screen.dart';
 
 class TripsScreen extends StatefulWidget {
@@ -252,67 +253,6 @@ class _TripsScreenState extends State<TripsScreen> {
     );
   }
 
-  // Backend sends numeric columns as strings; local SQLite stores them as num
-  String _confidencePct(dynamic v) {
-    if (v == null) return '—';
-    final n = v is String ? double.tryParse(v) : (v as num).toDouble();
-    return n != null ? '${(n * 100).round()} %' : '—';
-  }
-
-  static const _penaltyLabels = {
-    'harshAccel': 'Starkes Beschleunigen',
-    'harshBrake': 'Starkes Bremsen',
-    'smoothness': 'Unruhige Fahrweise',
-    'overRev': 'Hohe Drehzahlen',
-    'overheat': 'Überhitzung',
-  };
-
-  void _showScoreDialog(Map<String, dynamic> t) {
-    final breakdown = t['scoreBreakdown'] as Map<String, dynamic>?;
-    if (breakdown == null) return;
-    final penalties = (breakdown['penalties'] as Map<String, dynamic>?) ?? {};
-    final metrics = (breakdown['metrics'] as Map<String, dynamic>?) ?? {};
-    final activePenalties = penalties.entries.where((e) => (e.value as num) > 0).toList();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Fahr-Score: ${t['score']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (activePenalties.isEmpty)
-              const Text('Keine Auffälligkeiten — saubere Fahrt!',
-                  style: TextStyle(color: Colors.green)),
-            ...activePenalties.map((e) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(_penaltyLabels[e.key] ?? e.key),
-                      Text('−${(e.value as num).toStringAsFixed(1)}',
-                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                )),
-            const Divider(height: 20),
-            Text(
-              'GPS-Punkte: ${metrics['points'] ?? '—'} · '
-              'OBD: ${metrics['obdReadings'] ?? 0} · '
-              'Konfidenz: ${_confidencePct(t['scoreConfidence'])}',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-        ],
-      ),
-    );
-  }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -476,7 +416,9 @@ class _TripsScreenState extends State<TripsScreen> {
                                 '${_duration(t['startedAt'] as String, t['endedAt'] as String?)}${t['distanceKm'] != null ? ' · ${double.parse(t['distanceKm'] as String).toStringAsFixed(1)} km' : ''}',
                                 style: const TextStyle(fontSize: 13),
                               ),
-                              onTap: t['scoreBreakdown'] != null ? () => _showScoreDialog(t) : null,
+                              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => TripDetailScreen(trip: t),
+                              )),
                               trailing: IconButton(
                                 icon: const Icon(Icons.map, color: Colors.blue),
                                 tooltip: 'View on map',

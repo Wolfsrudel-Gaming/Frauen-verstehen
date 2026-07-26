@@ -17,6 +17,7 @@ export default async function tripRoutes(app: FastifyInstance) {
           score: tripScores.totalScore,
           scoreConfidence: tripScores.confidenceWeight,
           scoreSource: tripScores.sourceType,
+          scoreBreakdown: tripScores.breakdown,
         })
         .from(trips)
         .leftJoin(tripScores, eq(tripScores.tripId, trips.id))

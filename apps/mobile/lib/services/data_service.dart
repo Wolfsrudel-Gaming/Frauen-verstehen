@@ -139,4 +139,48 @@ class DataService {
     if (AppMode.isOffline) return LocalStore.reportDtcs(tripId, codes, vehicleId: vehicleId);
     return ApiService.reportDtcs(tripId: tripId, codes: codes, vehicleId: vehicleId);
   }
+
+  // ---------------------------------------------------------------------
+  // Detail + stats reads
+  // ---------------------------------------------------------------------
+  static Future<Map<String, dynamic>> getTrip(String tripId) =>
+      AppMode.isOffline ? LocalStore.getTrip(tripId) : ApiService.getTrip(tripId);
+
+  static Future<List<Map<String, dynamic>>> getTripObdReadings(String tripId) =>
+      AppMode.isOffline
+          ? LocalStore.getTripObdReadings(tripId)
+          : ApiService.getTripObdReadings(tripId);
+
+  static Future<List<Map<String, dynamic>>> getTripDtcs(String tripId) =>
+      AppMode.isOffline ? LocalStore.getTripDtcs(tripId) : ApiService.getTripDtcs(tripId);
+
+  static Future<List<Map<String, dynamic>>> getVehicleDtcs(String vehicleId) =>
+      AppMode.isOffline
+          ? LocalStore.getVehicleDtcs(vehicleId)
+          : ApiService.getVehicleDtcs(vehicleId);
+
+  static Future<int> clearVehicleDtcs(String vehicleId) => AppMode.isOffline
+      ? LocalStore.clearVehicleDtcs(vehicleId)
+      : ApiService.clearVehicleDtcs(vehicleId);
+
+  static Future<Map<String, dynamic>> getOverviewStats() =>
+      AppMode.isOffline ? LocalStore.getOverviewStats() : ApiService.getOverviewStats();
+
+  static Future<Map<String, dynamic>> getVehicleStats(String vehicleId) => AppMode.isOffline
+      ? LocalStore.getVehicleStats(vehicleId)
+      : ApiService.getVehicleStats(vehicleId);
+
+  static Future<List<Map<String, dynamic>>> getVehicleTrips(String vehicleId) => AppMode.isOffline
+      ? LocalStore.getVehicleTrips(vehicleId)
+      : ApiService.getVehicleTrips(vehicleId);
+
+  // Leaderboard needs a server — offline mode is single-device, so there is
+  // nobody to rank against.
+  static Future<List<Map<String, dynamic>>> getLeaderboard({
+    String range = 'month',
+    String source = 'all',
+  }) async {
+    if (AppMode.isOffline) return [];
+    return ApiService.getLeaderboard(range: range, source: source);
+  }
 }
