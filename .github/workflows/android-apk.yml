@@ -35,17 +35,24 @@ jobs:
 
       # Signed with the debug keystore (see android/app/build.gradle.kts) —
       # installable on any device for testing, not for Play Store upload.
+      #
+      # --split-per-abi keeps each APK about a third the size of the universal
+      # one (which bundles native code for every architecture). arm64-v8a fits
+      # essentially every phone made since ~2017.
+      - run: flutter build apk --release --split-per-abi
+
+      # Universal APK as a fallback for unusual/older devices
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
           name: driver-analytics-apk
-          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          path: apps/mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
-      # Also publish to a rolling "apk-latest" release so the APK can be
+      # Also publish to a rolling "apk-latest" release so the APKs can be
       # downloaded WITHOUT a GitHub login (artifacts require one):
-      # https://github.com/<owner>/<repo>/releases/download/apk-latest/app-release.apk
+      # https://github.com/<owner>/<repo>/releases/download/apk-latest/app-arm64-v8a-release.apk
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
@@ -53,5 +60,12 @@ jobs:
           body: |
             Automatisch gebaute Test-APK vom letzten Push (${{ github.sha }}).
             Direkt herunterladen und installieren — kein GitHub-Login nötig.
+
+            - `app-arm64-v8a-release.apk` — für praktisch alle aktuellen Handys (empfohlen)
+            - `app-armeabi-v7a-release.apk` — für sehr alte 32-Bit-Geräte
+            - `app-release.apk` — Universal, funktioniert überall, aber deutlich größer
           prerelease: true
-          files: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            apps/mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            apps/mobile/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            apps/mobile/build/app/outputs/flutter-apk/app-release.apk
