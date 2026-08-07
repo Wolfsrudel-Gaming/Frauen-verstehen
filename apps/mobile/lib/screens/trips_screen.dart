@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/data_service.dart';
 import '../services/obd_fusion_service.dart';
 import '../services/trip_detection_service.dart';
+import '../theme/app_theme.dart';
 import 'ble_scanner_screen.dart';
 import 'live_obd_screen.dart';
 import 'live_trip_screen.dart';
@@ -167,14 +168,14 @@ class _TripsScreenState extends State<TripsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Discard Trip?'),
-        content: const Text('This will mark the trip as discarded.'),
+        title: const Text('Fahrt verwerfen?'),
+        content: const Text('Die Fahrt wird als verworfen markiert und nicht bewertet.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Discard'),
+            child: const Text('Verwerfen'),
           ),
         ],
       ),
@@ -221,10 +222,10 @@ class _TripsScreenState extends State<TripsScreen> {
 
   String _autoStateLabel() {
     switch (_autoState) {
-      case TripState.idle: return 'Watching for movement…';
-      case TripState.detecting: return 'Movement detected — confirming…';
-      case TripState.inTrip: return 'Auto-trip in progress';
-      case TripState.stopping: return 'Stopped — waiting to finalize…';
+      case TripState.idle: return 'Wartet auf Bewegung…';
+      case TripState.detecting: return 'Bewegung erkannt — wird bestätigt…';
+      case TripState.inTrip: return 'Fahrt wird aufgezeichnet';
+      case TripState.stopping: return 'Angehalten — wird gleich beendet…';
     }
   }
 
@@ -260,7 +261,7 @@ class _TripsScreenState extends State<TripsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trips'),
+        title: const Text('Fahrten'),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
       ),
       body: _loading
@@ -282,7 +283,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Auto Trip Detection', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    const Text('Automatische Fahrterkennung', style: TextStyle(fontWeight: FontWeight.bold)),
                                     if (_autoDetect)
                                       Text(_autoStateLabel(), style: TextStyle(fontSize: 12, color: _autoState == TripState.inTrip ? Colors.green : Colors.grey)),
                                   ],
@@ -307,9 +308,9 @@ class _TripsScreenState extends State<TripsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Active Trip', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                const Text('Laufende Fahrt', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                 const SizedBox(height: 4),
-                                Text('Started: ${_formatDate(active['startedAt'] as String)}', style: const TextStyle(fontSize: 13)),
+                                Text('Start: ${_formatDate(active['startedAt'] as String)}', style: const TextStyle(fontSize: 13)),
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   width: double.infinity,
@@ -327,7 +328,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _endOdoCtrl,
-                                  decoration: const InputDecoration(labelText: 'End Odometer (km)', isDense: true, border: OutlineInputBorder()),
+                                  decoration: const InputDecoration(labelText: 'Kilometerstand Ende', isDense: true, border: OutlineInputBorder()),
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 12),
@@ -337,7 +338,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                       child: ElevatedButton.icon(
                                         onPressed: _actionLoading ? null : () => _endTrip(active['id'] as String),
                                         icon: const Icon(Icons.stop_circle),
-                                        label: const Text('End Trip'),
+                                        label: const Text('Fahrt beenden'),
                                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                                       ),
                                     ),
@@ -345,7 +346,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                     OutlinedButton.icon(
                                       onPressed: _actionLoading ? null : () => _discardTrip(active['id'] as String),
                                       icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                      label: const Text('Discard', style: TextStyle(color: Colors.red)),
+                                      label: const Text('Verwerfen', style: TextStyle(color: AppTheme.bad)),
                                     ),
                                   ],
                                 ),
@@ -366,14 +367,14 @@ class _TripsScreenState extends State<TripsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Start New Trip', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                const Text('Neue Fahrt starten', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                 const SizedBox(height: 12),
                                 if (_vehicles.isNotEmpty)
                                   DropdownButtonFormField<String?>(
                                     value: _selectedVehicleId,
-                                    decoration: const InputDecoration(labelText: 'Vehicle', isDense: true, border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(labelText: 'Fahrzeug', isDense: true, border: OutlineInputBorder()),
                                     items: [
-                                      const DropdownMenuItem(value: null, child: Text('— no vehicle —')),
+                                      const DropdownMenuItem(value: null, child: Text('— kein Fahrzeug —')),
                                       ..._vehicles.map((v) => DropdownMenuItem(value: v['id'] as String, child: Text('${v['make']} ${v['model']}'))),
                                     ],
                                     onChanged: (v) => setState(() => _selectedVehicleId = v),
@@ -381,7 +382,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                 const SizedBox(height: 12),
                                 TextField(
                                   controller: _odoCtrl,
-                                  decoration: const InputDecoration(labelText: 'Start Odometer (km, optional)', isDense: true, border: OutlineInputBorder()),
+                                  decoration: const InputDecoration(labelText: 'Kilometerstand Start (optional)', isDense: true, border: OutlineInputBorder()),
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 16),
@@ -390,7 +391,7 @@ class _TripsScreenState extends State<TripsScreen> {
                                   child: ElevatedButton.icon(
                                     onPressed: _actionLoading ? null : _startTrip,
                                     icon: const Icon(Icons.play_circle),
-                                    label: const Text('Start Trip'),
+                                    label: const Text('Fahrt starten'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.blue,
                                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -405,7 +406,7 @@ class _TripsScreenState extends State<TripsScreen> {
                       ],
 
                       // ---- Trip history ----
-                      const Text('Trip History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Text('Bisherige Fahrten', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       const SizedBox(height: 8),
                       ...(_trips.where((t) => t['status'] != 'in_progress').map((t) => Card(
                             margin: const EdgeInsets.only(bottom: 8),
@@ -421,7 +422,7 @@ class _TripsScreenState extends State<TripsScreen> {
                               )),
                               trailing: IconButton(
                                 icon: const Icon(Icons.map, color: Colors.blue),
-                                tooltip: 'View on map',
+                                tooltip: 'Route auf Karte',
                                 onPressed: () {
                                   Navigator.of(context).push(MaterialPageRoute(
                                     builder: (_) => TripMapScreen(
@@ -476,7 +477,7 @@ class _ObdConnectButtonState extends State<_ObdConnectButton> {
             );
           },
           icon: const Icon(Icons.bluetooth_connected),
-          label: const Text('View Live OBD'),
+          label: const Text('Live-OBD anzeigen'),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.blue,
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -496,7 +497,7 @@ class _ObdConnectButtonState extends State<_ObdConnectButton> {
           );
         },
         icon: const Icon(Icons.bluetooth_searching),
-        label: const Text('Connect OBD Adapter'),
+        label: const Text('OBD-Adapter verbinden'),
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 12),
         ),

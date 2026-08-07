@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Driver Analytics — Sign In')),
+      appBar: AppBar(title: const Text('Anmelden')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -63,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
             TextField(
               controller: _serverCtrl,
               decoration: const InputDecoration(
-                labelText: 'Server URL',
+                labelText: 'Server-Adresse',
                 hintText: 'http://192.168.x.x:3001',
                 border: OutlineInputBorder(),
               ),
@@ -74,14 +74,14 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _usernameCtrl,
-              decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Benutzername', border: OutlineInputBorder()),
               textInputAction: TextInputAction.next,
               autocorrect: false,
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _passwordCtrl,
-              decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Passwort', border: OutlineInputBorder()),
               obscureText: true,
               textInputAction: TextInputAction.next,
             ),
@@ -89,8 +89,8 @@ class _LoginScreenState extends State<LoginScreen> {
             TextField(
               controller: _totpCtrl,
               decoration: const InputDecoration(
-                labelText: '2FA Code (admins only)',
-                hintText: '6-digit code',
+                labelText: '2FA-Code (nur Admins)',
+                hintText: '6-stelliger Code',
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
@@ -104,7 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               child: _loading
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Sign In', style: TextStyle(fontSize: 16)),
+                  : const Text('Anmelden', style: TextStyle(fontSize: 16)),
             ),
             const SizedBox(height: 24),
             Row(

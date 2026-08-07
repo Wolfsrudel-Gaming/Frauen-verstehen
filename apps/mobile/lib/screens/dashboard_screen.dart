@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/app_mode.dart';
 import '../services/data_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/charts.dart';
 import 'trip_detail_screen.dart';
 
-// Overview tab: totals, average score, open faults, recent trips.
+/// Home tab: how you are driving overall, at a glance.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -13,7 +15,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _stats;
-  List<Map<String, dynamic>> _recentTrips = [];
+  List<Map<String, dynamic>> _trips = [];
   List<Map<String, dynamic>> _leaderboard = [];
   bool _loading = true;
   String? _error;
@@ -25,221 +27,297 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final stats = await DataService.getOverviewStats();
       final trips = await DataService.getTrips();
       List<Map<String, dynamic>> board = [];
-      try {
-        board = await DataService.getLeaderboard(range: 'month');
-      } catch (_) {
-        // leaderboard is optional — never fail the dashboard for it
+      if (!AppMode.isOffline) {
+        try {
+          board = await DataService.getLeaderboard(range: 'month');
+        } catch (_) {
+          // optional — never fail the dashboard for it
+        }
       }
       if (!mounted) return;
       setState(() {
         _stats = stats;
-        _recentTrips =
-            trips.where((t) => t['status'] == 'completed').take(5).toList();
+        _trips = trips.where((t) => t['status'] == 'completed').toList();
         _leaderboard = board;
       });
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); });
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
-      if (mounted) setState(() { _loading = false; });
+      if (mounted) setState(() => _loading = false);
     }
   }
 
+  double? _num(dynamic v) => v == null
+      ? null
+      : (v is num ? v.toDouble() : double.tryParse(v.toString()));
+
   String _fmtDate(String iso) {
-    final dt = DateTime.parse(iso).toLocal();
-    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}. '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final d = DateTime.parse(iso).toLocal();
+    return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.'
+        ' ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
-  Color _scoreColor(double s) =>
-      s >= 80 ? Colors.green : (s >= 60 ? Colors.orange : Colors.red);
+  /// Kilometres per day for the last 7 days, oldest first.
+  (List<double>, List<String>) _weekKm() {
+    const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+    final today = DateTime.now();
+    final values = <double>[];
+    final labels = <String>[];
+    for (int i = 6; i >= 0; i--) {
+      final day = DateTime(today.year, today.month, today.day).subtract(Duration(days: i));
+      final next = day.add(const Duration(days: 1));
+      double km = 0;
+      for (final t in _trips) {
+        final started = DateTime.parse(t['startedAt'] as String).toLocal();
+        if (started.isAfter(day) && started.isBefore(next)) {
+          km += _num(t['distanceKm']) ?? 0;
+        }
+      }
+      values.add(km);
+      labels.add(dayNames[day.weekday - 1]);
+    }
+    return (values, labels);
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = _stats;
+    final avg = _num(s?['avgScore']);
+
+    // Score trend: oldest → newest, last 12 scored trips
+    final scored = _trips.where((t) => t['score'] != null).toList().reversed.toList();
+    final trend = scored.map((t) => _num(t['score'])!).toList();
+    final trendTail = trend.length > 12 ? trend.sublist(trend.length - 12) : trend;
+
+    final (weekValues, weekLabels) = _weekKm();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Übersicht'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Aktualisieren',
+            onPressed: _load,
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, style: const TextStyle(color: Colors.red)),
-                  ),
+              ? EmptyState(
+                  icon: Icons.cloud_off,
+                  title: 'Daten nicht abrufbar',
+                  message: _error,
+                  action: FilledButton(onPressed: _load, child: const Text('Erneut versuchen')),
                 )
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                     children: [
-                      // ---- Average score hero ----
-                      if (s?['avgScore'] != null) ...[
-                        Center(
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 120,
-                                height: 120,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _scoreColor((s!['avgScore'] as num).toDouble()),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                      // ---- Score hero ----
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: avg == null
+                              ? const EmptyState(
+                                  icon: Icons.emoji_events_outlined,
+                                  title: 'Noch kein Score',
+                                  message:
+                                      'Zeichne eine Fahrt mit mindestens 300 m Strecke auf — '
+                                      'danach erscheint hier deine Bewertung.',
+                                )
+                              : Row(
                                   children: [
-                                    Text(
-                                      (s['avgScore'] as num).toStringAsFixed(0),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 44,
-                                        fontWeight: FontWeight.w800,
-                                        height: 1,
+                                    ScoreRing(score: avg, size: 104),
+                                    const SizedBox(width: 20),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('Dein Fahrstil',
+                                              style: TextStyle(
+                                                  fontSize: 13, color: AppTheme.muted)),
+                                          Text(
+                                            AppTheme.scoreLabel(avg),
+                                            style: TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w800,
+                                              color: AppTheme.scoreColor(avg),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            '${s?['scoredTrips'] ?? 0} bewertete Fahrten'
+                                            '${s?['bestScore'] != null ? ' · Bestwert ${_num(s!['bestScore'])!.toStringAsFixed(0)}' : ''}',
+                                            style: const TextStyle(
+                                                fontSize: 12, color: AppTheme.muted),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    const Text('Ø Score',
-                                        style: TextStyle(color: Colors.white70, fontSize: 12)),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'aus ${s['scoredTrips']} bewerteten Fahrten'
-                                '${s['bestScore'] != null ? '  ·  Bestwert ${(s['bestScore'] as num).toStringAsFixed(0)}' : ''}',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ---- Score trend ----
+                      if (trendTail.length >= 2) ...[
+                        const SectionHeader('Score-Entwicklung'),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 16, 12, 10),
+                            child: Column(
+                              children: [
+                                SeriesChart(
+                                  xs: List.generate(trendTail.length, (i) => i.toDouble()),
+                                  ys: trendTail,
+                                  color: AppTheme.scoreColor(trendTail.last),
+                                  unit: 'Punkte',
+                                  maxYHint: 100,
+                                  height: 150,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Die letzten ${trendTail.length} bewerteten Fahrten '
+                                  '(älteste links)',
+                                  style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 20),
                       ],
 
-                      // ---- Stat tiles ----
+                      // ---- Week kilometres ----
+                      const SectionHeader('Kilometer diese Woche'),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 18, 12, 10),
+                          child: LabelledBarChart(
+                            values: weekValues,
+                            labels: weekLabels,
+                            unit: 'km',
+                            color: AppTheme.brand,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ---- Totals ----
+                      const SectionHeader('Gesamt'),
                       GridView.count(
                         crossAxisCount: 2,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        childAspectRatio: 1.9,
+                        childAspectRatio: 1.85,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
                         children: [
-                          _tile(Icons.route, 'Fahrten', '${s?['tripCount'] ?? 0}', Colors.blue),
-                          _tile(Icons.straighten, 'Kilometer',
-                              '${(s?['totalKm'] as num?)?.toStringAsFixed(1) ?? '0'}', Colors.teal),
-                          _tile(Icons.schedule, 'Stunden',
-                              '${(s?['totalHours'] as num?)?.toStringAsFixed(1) ?? '0'}', Colors.indigo),
-                          _tile(Icons.directions_car, 'Fahrzeuge',
-                              '${s?['activeVehicles'] ?? 0}', Colors.brown),
-                          _tile(Icons.memory, 'OBD-Werte',
-                              '${s?['obdReadings'] ?? 0}', Colors.purple),
-                          _tile(
-                            Icons.warning_amber,
-                            'Offene Fehler',
-                            '${s?['openDtcs'] ?? 0}',
-                            (s?['openDtcs'] as num?) != null && (s!['openDtcs'] as num) > 0
-                                ? Colors.red
-                                : Colors.grey,
+                          StatTile(
+                            icon: Icons.route,
+                            label: 'Fahrten',
+                            value: '${s?['tripCount'] ?? 0}',
+                            color: AppTheme.brand,
+                          ),
+                          StatTile(
+                            icon: Icons.straighten,
+                            label: 'Kilometer',
+                            value: (_num(s?['totalKm']) ?? 0).toStringAsFixed(1),
+                            color: Colors.teal,
+                          ),
+                          StatTile(
+                            icon: Icons.schedule,
+                            label: 'Stunden',
+                            value: (_num(s?['totalHours']) ?? 0).toStringAsFixed(1),
+                            color: Colors.indigo,
+                          ),
+                          StatTile(
+                            icon: Icons.directions_car,
+                            label: 'Fahrzeuge',
+                            value: '${s?['activeVehicles'] ?? 0}',
+                            color: Colors.brown,
+                          ),
+                          StatTile(
+                            icon: Icons.memory,
+                            label: 'OBD-Messwerte',
+                            value: '${s?['obdReadings'] ?? 0}',
+                            color: Colors.purple,
+                          ),
+                          StatTile(
+                            icon: Icons.warning_amber,
+                            label: 'Offene Fehler',
+                            value: '${s?['openDtcs'] ?? 0}',
+                            color: ((s?['openDtcs'] as num?) ?? 0) > 0
+                                ? AppTheme.bad
+                                : AppTheme.muted,
                           ),
                         ],
                       ),
                       const SizedBox(height: 24),
 
                       // ---- Recent trips ----
-                      const Text('Letzte Fahrten',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(height: 8),
-                      if (_recentTrips.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text('Noch keine abgeschlossenen Fahrten.',
-                              style: TextStyle(color: Colors.grey)),
-                        ),
-                      ..._recentTrips.map((t) {
-                        final scoreStr = t['score'] as String?;
-                        final score = scoreStr != null ? double.tryParse(scoreStr) : null;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            leading: score != null
-                                ? CircleAvatar(
-                                    backgroundColor: _scoreColor(score),
-                                    radius: 18,
-                                    child: Text(score.toStringAsFixed(0),
-                                        style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13)),
-                                  )
-                                : const CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: Colors.grey,
-                                    child: Icon(Icons.route, size: 16, color: Colors.white),
-                                  ),
-                            title: Text(_fmtDate(t['startedAt'] as String),
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                            subtitle: Text(
-                              t['distanceKm'] != null
-                                  ? '${double.parse(t['distanceKm'] as String).toStringAsFixed(1)} km'
-                                  : 'ohne Streckendaten',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => TripDetailScreen(trip: t),
-                            )),
+                      const SectionHeader('Letzte Fahrten'),
+                      if (_trips.isEmpty)
+                        Card(
+                          child: const EmptyState(
+                            icon: Icons.route_outlined,
+                            title: 'Noch keine Fahrten',
+                            message:
+                                'Starte im Tab „Fahrten" eine Aufzeichnung — oder aktiviere '
+                                'die automatische Erkennung, die Fahrten selbst erkennt.',
                           ),
-                        );
-                      }),
+                        )
+                      else
+                        ..._trips.take(5).map(_tripTile),
 
-                      // ---- Leaderboard (online only) ----
+                      // ---- Leaderboard ----
                       if (!AppMode.isOffline && _leaderboard.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Leaderboard (30 Tage)',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        const SizedBox(height: 8),
-                        ..._leaderboard.take(5).map((e) => ListTile(
-                              dense: true,
-                              leading: Text(
-                                e['rank'] == 1
-                                    ? '🥇'
-                                    : e['rank'] == 2
-                                        ? '🥈'
-                                        : e['rank'] == 3
-                                            ? '🥉'
-                                            : '${e['rank']}',
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                              title: Text(e['username'] as String? ?? '—'),
-                              subtitle: Text('${e['tripCount']} Fahrten',
-                                  style: const TextStyle(fontSize: 12)),
-                              trailing: Text(
-                                '${(e['score'] as num?)?.toStringAsFixed(0) ?? '—'}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                            )),
+                        const SizedBox(height: 24),
+                        const SectionHeader('Leaderboard (30 Tage)'),
+                        Card(
+                          child: Column(
+                            children: [
+                              for (int i = 0; i < _leaderboard.take(5).length; i++) ...[
+                                if (i > 0) const Divider(height: 1),
+                                _leaderboardRow(_leaderboard[i]),
+                              ],
+                            ],
+                          ),
+                        ),
                       ],
 
                       if (AppMode.isOffline) ...[
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 24),
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(8),
+                            color: AppTheme.brand.withValues(alpha: 0.07),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text(
-                            'Offline-Modus: Alle Daten liegen nur auf diesem Gerät. '
-                            'Ein Leaderboard gibt es erst mit Server-Anbindung.',
-                            style: TextStyle(fontSize: 12),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.cloud_off, size: 18, color: AppTheme.brand),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Offline-Modus: Alle Daten liegen nur auf diesem Gerät. '
+                                  'Ein Leaderboard gibt es erst mit Server-Anbindung.',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -249,31 +327,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _tile(IconData icon, String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 26),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(value,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis),
-                Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              ],
-            ),
+  Widget _tripTile(Map<String, dynamic> t) {
+    final score = _num(t['score']);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          leading: score != null
+              ? ScoreRing(score: score, size: 44)
+              : Container(
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(
+                      color: AppTheme.surfaceAlt, shape: BoxShape.circle),
+                  child: const Icon(Icons.route, size: 18, color: AppTheme.muted),
+                ),
+          title: Text(_fmtDate(t['startedAt'] as String),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          subtitle: Text(
+            t['distanceKm'] != null
+                ? '${_num(t['distanceKm'])!.toStringAsFixed(1)} km'
+                : 'ohne Streckendaten',
+            style: const TextStyle(fontSize: 12),
           ),
-        ],
+          trailing: const Icon(Icons.chevron_right, color: AppTheme.muted),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => TripDetailScreen(trip: t)),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _leaderboardRow(Map<String, dynamic> e) {
+    final rank = e['rank'] as int? ?? 0;
+    final score = _num(e['score']);
+    return ListTile(
+      dense: true,
+      leading: SizedBox(
+        width: 28,
+        child: Text(
+          rank == 1 ? '🥇' : (rank == 2 ? '🥈' : (rank == 3 ? '🥉' : '$rank')),
+          style: const TextStyle(fontSize: 18),
+          textAlign: TextAlign.center,
+        ),
+      ),
+      title: Text(e['username'] as String? ?? '—',
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+      subtitle: Text('${e['tripCount']} Fahrten', style: const TextStyle(fontSize: 12)),
+      trailing: score == null
+          ? const Text('—')
+          : Text(score.toStringAsFixed(0),
+              style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                  color: AppTheme.scoreColor(score))),
     );
   }
 }

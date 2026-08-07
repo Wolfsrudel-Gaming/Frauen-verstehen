@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/data_service.dart';
+import '../theme/app_theme.dart';
 import 'vehicle_detail_screen.dart';
 
 class VehiclesScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
   Future<void> _addVehicle() async {
     if (_makeCtrl.text.trim().isEmpty || _modelCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Make and Model are required')),
+        const SnackBar(content: Text('Marke und Modell sind Pflichtfelder')),
       );
       return;
     }
@@ -77,26 +78,26 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Add Vehicle'),
+        title: const Text('Fahrzeug hinzufügen'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: _makeCtrl, decoration: const InputDecoration(labelText: 'Make *'), textInputAction: TextInputAction.next),
-              TextField(controller: _modelCtrl, decoration: const InputDecoration(labelText: 'Model *'), textInputAction: TextInputAction.next),
-              TextField(controller: _yearCtrl, decoration: const InputDecoration(labelText: 'Year'), keyboardType: TextInputType.number, textInputAction: TextInputAction.next),
-              TextField(controller: _plateCtrl, decoration: const InputDecoration(labelText: 'License Plate'), textInputAction: TextInputAction.next),
+              TextField(controller: _makeCtrl, decoration: const InputDecoration(labelText: 'Marke *'), textInputAction: TextInputAction.next),
+              TextField(controller: _modelCtrl, decoration: const InputDecoration(labelText: 'Modell *'), textInputAction: TextInputAction.next),
+              TextField(controller: _yearCtrl, decoration: const InputDecoration(labelText: 'Baujahr'), keyboardType: TextInputType.number, textInputAction: TextInputAction.next),
+              TextField(controller: _plateCtrl, decoration: const InputDecoration(labelText: 'Kennzeichen'), textInputAction: TextInputAction.next),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _category,
-                decoration: const InputDecoration(labelText: 'Category'),
+                decoration: const InputDecoration(labelText: 'Fahrzeugart'),
                 items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                 onChanged: (v) => setState(() => _category = v!),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _protocol,
-                decoration: const InputDecoration(labelText: 'OBD Support'),
+                decoration: const InputDecoration(labelText: 'OBD-Unterstützung'),
                 items: _protocols.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
                 onChanged: (v) => setState(() => _protocol = v!),
               ),
@@ -104,8 +105,8 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-          ElevatedButton(onPressed: _addVehicle, child: const Text('Add')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Abbrechen')),
+          ElevatedButton(onPressed: _addVehicle, child: const Text('Hinzufügen')),
         ],
       ),
     );
@@ -121,7 +122,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vehicles'),
+        title: const Text('Fahrzeuge'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
@@ -135,7 +136,12 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
           : _error != null
               ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
               : _vehicles.isEmpty
-                  ? const Center(child: Text('No vehicles yet. Tap + to add one.'))
+                  ? const EmptyState(
+                      icon: Icons.directions_car_outlined,
+                      title: 'Noch keine Fahrzeuge',
+                      message: 'Lege unten rechts dein erstes Fahrzeug an — Auto, Motorrad, '
+                          'Oldtimer oder Fahrrad.',
+                    )
                   : ListView.builder(
                       padding: const EdgeInsets.all(12),
                       itemCount: _vehicles.length,
@@ -175,7 +181,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                                 ],
                                 if (!isActive) ...[
                                   const SizedBox(width: 8),
-                                  const Text('inactive', style: TextStyle(color: Colors.red, fontSize: 12)),
+                                  const Text('stillgelegt', style: TextStyle(color: AppTheme.bad, fontSize: 12)),
                                 ],
                               ],
                             ),

@@ -26,6 +26,12 @@ class ObdFusionService {
   static ObdReading? _lastReading;
   static ObdReading? get lastReading => _lastReading;
 
+  // Rolling in-memory history for the live charts (~5 min at 2 s interval).
+  // Separate from _readings, which is drained on every upload.
+  static const int _historyLimit = 150;
+  static final List<ObdReading> _history = [];
+  static List<ObdReading> get history => List.unmodifiable(_history);
+
   static final StreamController<ObdReading?> _readingController =
       StreamController<ObdReading?>.broadcast();
   static Stream<ObdReading?> get readingStream => _readingController.stream;
@@ -111,6 +117,7 @@ class ObdFusionService {
     _sessionId = null;
     _elmProtocol = null;
     _lastReading = null;
+    _history.clear();
     _readingController.add(null);
 
     await BleService.disconnect();
@@ -131,6 +138,9 @@ class ObdFusionService {
       final reading = await _obd!.poll();
       _lastReading = reading;
       _readingController.add(reading);
+
+      _history.add(reading);
+      if (_history.length > _historyLimit) _history.removeAt(0);
 
       _readings.add(reading.toJson());
       if (_readings.length >= _batchSize) await _flush();

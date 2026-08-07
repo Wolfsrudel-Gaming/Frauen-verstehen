@@ -68,7 +68,7 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connect OBD Adapter'),
+        title: const Text('OBD-Adapter verbinden'),
         actions: [
           if (_scanning)
             const Padding(
@@ -92,7 +92,8 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
                   Text(_error!, style: TextStyle(color: Colors.red.shade800)),
                   const SizedBox(height: 6),
                   Text(
-                    'If this is a Carista adapter, use "BLE Inspector" below to find its UUIDs.',
+                    'Falls es ein Carista-Adapter ist: unten den BLE-Inspektor öffnen, '
+                    'um die UUIDs zu ermitteln.',
                     style: TextStyle(fontSize: 12, color: Colors.red.shade700),
                   ),
                 ],
@@ -150,8 +151,8 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.settings_ethernet, color: Colors.blue),
-            title: const Text('BLE Inspector / Custom UUID Setup'),
-            subtitle: const Text('Identify Carista GATT UUIDs (use when adapter connects but OBD fails)'),
+            title: const Text('BLE-Inspektor / Eigene UUIDs'),
+            subtitle: const Text('Carista-UUIDs ermitteln, falls die Verbindung scheitert'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const _BleInspectorScreen()),

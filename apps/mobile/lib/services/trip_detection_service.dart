@@ -66,6 +66,13 @@ class TripDetectionService {
   // Live stats for the in-trip UI (speed, distance, route growth)
   static int _pointCount = 0;
   static DateTime? _tripStartedAt;
+
+  // Rolling speed history for the cockpit chart (~10 min of points)
+  static const int _speedHistoryLimit = 300;
+  static final List<double> _speedHistory = [];
+  static List<double> get speedHistory => List.unmodifiable(_speedHistory);
+  static double get maxSpeedKmh =>
+      _speedHistory.isEmpty ? 0 : _speedHistory.reduce((a, b) => a > b ? a : b);
   static final StreamController<LiveTripStats> _liveController =
       StreamController<LiveTripStats>.broadcast();
   static Stream<LiveTripStats> get liveStream => _liveController.stream;
@@ -99,6 +106,7 @@ class TripDetectionService {
     _activeSegmentId = null;
     _totalDistanceM = 0;
     _pointCount = 0;
+    _speedHistory.clear();
     _lastPos = null;
     _tripStartedAt = DateTime.now();
     await LocationService.startTracking();
@@ -117,6 +125,7 @@ class TripDetectionService {
     _activeSegmentId = null;
     _totalDistanceM = 0;
     _pointCount = 0;
+    _speedHistory.clear();
     _tripStartedAt = null;
     // Keep the location stream alive if auto-detection is also running
     if (_sub == null) await LocationService.stopTracking();
@@ -216,6 +225,8 @@ class TripDetectionService {
       _activeTripId = trip['id'] as String;
       _activeSegmentId = null;
       _pointCount = 0;
+      _speedHistory.clear();
+    _speedHistory.clear();
       _tripStartedAt = DateTime.now();
       _setState(TripState.inTrip);
       _slowSince = null;
@@ -241,6 +252,7 @@ class TripDetectionService {
     _activeSegmentId = null;
     _totalDistanceM = 0;
     _pointCount = 0;
+    _speedHistory.clear();
     _tripStartedAt = null;
     _slowSince = null;
     _setState(TripState.idle);
@@ -269,6 +281,10 @@ class TripDetectionService {
 
     // Notify the live UI
     _pointCount++;
+    if (pos.speed >= 0) {
+      _speedHistory.add(speedKmh);
+      if (_speedHistory.length > _speedHistoryLimit) _speedHistory.removeAt(0);
+    }
     _liveController.add(LiveTripStats(
       speedKmh: pos.speed >= 0 ? speedKmh : null,
       distanceKm: _totalDistanceM / 1000.0,
