@@ -191,15 +191,19 @@ class BleService {
   }
 
   // Wire the characteristic pair to the shared RX stream.
-  // onValueReceived (not lastValueStream) — no stale-value replay.
+  // onValueReceived (not lastValueStream) — no stale-value replay. The old
+  // subscription is cancelled first so a reconnect never double-delivers.
+  static StreamSubscription<List<int>>? _rxSub;
+
   static Future<void> _wireUp(
     BluetoothCharacteristic writeChar,
     BluetoothCharacteristic notifyChar,
   ) async {
     _writeChar = writeChar;
     _notifyChar = notifyChar;
+    await _rxSub?.cancel();
     await notifyChar.setNotifyValue(true);
-    notifyChar.onValueReceived.listen(_rxController.add);
+    _rxSub = notifyChar.onValueReceived.listen(_rxController.add);
   }
 
   // ---------------------------------------------------------------------
@@ -256,6 +260,8 @@ class BleService {
 
   // Sends an ELM327 identify command and waits for ANY notification bytes.
   // A real ELM327-compatible bridge answers ATI within a few hundred ms.
+  // On success the line is drained until quiet so no response residue leaks
+  // into the command pipeline that attaches next.
   static Future<bool> _probePair(
     BluetoothCharacteristic w,
     BluetoothCharacteristic n,
@@ -264,7 +270,9 @@ class BleService {
     try {
       await n.setNotifyValue(true);
       final completer = Completer<bool>();
+      var lastData = DateTime.now();
       sub = n.onValueReceived.listen((data) {
+        lastData = DateTime.now();
         if (data.isNotEmpty && !completer.isCompleted) completer.complete(true);
       });
       await w.write(utf8.encode('ATI\r'),
@@ -275,8 +283,19 @@ class BleService {
         try {
           await n.setNotifyValue(false);
         } catch (_) {}
+        return false;
       }
-      return ok;
+      // Absorb the rest of the ATI response (ends with '>') so it cannot
+      // desynchronise the ELM327 client's request/response pairing.
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (DateTime.now().isBefore(deadline)) {
+        if (DateTime.now().difference(lastData) >
+            const Duration(milliseconds: 300)) {
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 60));
+      }
+      return true;
     } catch (_) {
       return false;
     } finally {
@@ -353,6 +372,8 @@ class BleService {
   }
 
   static Future<void> disconnect() async {
+    await _rxSub?.cancel();
+    _rxSub = null;
     try {
       await _notifyChar?.setNotifyValue(false);
     } catch (_) {}

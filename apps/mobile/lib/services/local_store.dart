@@ -177,10 +177,10 @@ class LocalStore {
     double meters = 0;
     for (int i = 1; i < points.length; i++) {
       meters += Geolocator.distanceBetween(
-        points[i - 1]['lat'] as double,
-        points[i - 1]['lon'] as double,
-        points[i]['lat'] as double,
-        points[i]['lon'] as double,
+        (points[i - 1]['lat'] as num).toDouble(),
+        (points[i - 1]['lon'] as num).toDouble(),
+        (points[i]['lat'] as num).toDouble(),
+        (points[i]['lon'] as num).toDouble(),
       );
     }
     return meters / 1000.0;
@@ -197,9 +197,9 @@ class LocalStore {
         'startOdometer': r['start_odometer'],
         'endOdometer': r['end_odometer'],
         // The backend serialises Postgres numeric as string — mirror that.
-        'distanceKm': r['distance_km'] != null ? (r['distance_km'] as double).toStringAsFixed(3) : null,
+        'distanceKm': r['distance_km'] != null ? (r['distance_km'] as num).toStringAsFixed(3) : null,
         'notes': r['notes'],
-        'score': r['score'] != null ? (r['score'] as double).toStringAsFixed(1) : null,
+        'score': r['score'] != null ? (r['score'] as num).toStringAsFixed(1) : null,
         'scoreBreakdown': r['score_breakdown'] != null
             ? jsonDecode(r['score_breakdown'] as String)
             : null,
@@ -225,8 +225,8 @@ class LocalStore {
     final rows = await _pointRows(tripId);
     return rows
         .map((r) => {
-              'lat': (r['lat'] as double).toString(),
-              'lon': (r['lon'] as double).toString(),
+              'lat': (r['lat'] as num).toString(),
+              'lon': (r['lon'] as num).toString(),
               'altitudeM': r['altitude_m']?.toString(),
               'accuracyM': r['accuracy_m']?.toString(),
               'speedKmh': r['speed_kmh']?.toString(),

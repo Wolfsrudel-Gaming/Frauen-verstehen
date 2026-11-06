@@ -4,6 +4,16 @@ import 'ble_service.dart';
 
 // ELM327 AT command client.
 // Handles the prompt-based request/response protocol over BLE.
+//
+// Robustness notes (learned the hard way):
+// - The RX line can hold stale bytes when we attach (e.g. the tail of the
+//   auto-detect probe's ATI response, ending in '>'). Without draining,
+//   every command would complete with the PREVIOUS command's response and
+//   the whole init sequence desynchronises — protocol detection and the
+//   supported-PID bitmaps then parse garbage and polling reads nothing.
+//   Therefore: drain until the line is quiet before init, and clear the
+//   buffer at the start of every command.
+// - ATZ reboots the adapter; it needs a long timeout and prints a banner.
 class Elm327Client {
   static const Duration _cmdTimeout = Duration(seconds: 5);
   static const String _prompt = '>';
@@ -11,24 +21,31 @@ class Elm327Client {
   final StringBuffer _buf = StringBuffer();
   StreamSubscription<List<int>>? _rxSub;
   Completer<String>? _pending;
+  DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
 
   // -------------------------------------------------------------------------
   // Open the ELM327 channel and run initialisation sequence
   // Returns the detected OBD protocol name (e.g. 'ISO 15765-4 CAN')
   // -------------------------------------------------------------------------
   Future<String> init() async {
-    _rxSub = BleService.rxStream.listen(_onBytes, onError: _onError);
+    _rxSub ??= BleService.rxStream.listen(_onBytes, onError: _onError);
 
-    await _cmd('ATZ');    // reset
-    await _cmd('ATE0');   // echo off
-    await _cmd('ATL0');   // line feeds off
-    await _cmd('ATS0');   // spaces off  ← keeps response parsing simple
-    await _cmd('ATH0');   // headers off
+    // Absorb any stale bytes (probe residue, old banners) until the line
+    // has been quiet for a moment — only then is request/response reliable.
+    await _drainUntilQuiet();
+
+    await _cmd('ATZ', timeout: const Duration(seconds: 8)); // reset (reboots)
+    await _drainUntilQuiet(maxWait: const Duration(seconds: 1));
+    await _cmd('ATE0');  // echo off
+    await _cmd('ATL0');  // line feeds off
+    await _cmd('ATS0');  // spaces off  ← keeps response parsing simple
+    await _cmd('ATH0');  // headers off
     await _cmd('ATAT2'); // adaptive timing mode 2
     await _cmd('ATSP0'); // auto detect protocol
 
-    // Trigger protocol detection by querying PID support bitmap
-    await _cmd('0100', timeout: const Duration(seconds: 10));
+    // Trigger protocol detection by querying PID support bitmap.
+    // First contact with the ECU can take a while (SEARCHING...).
+    await _cmd('0100', timeout: const Duration(seconds: 15));
 
     // Get the detected protocol
     final proto = await _cmd('ATDP');
@@ -52,6 +69,7 @@ class Elm327Client {
       try {
         final response = await _cmd(pid);
         final bits = parsePidBitmap(response, pid);
+        if (bits.isEmpty && pid != '0100') break; // end of supported ranges
         supported.addAll(bits);
       } catch (_) {
         break; // stop at first unsupported range
@@ -71,7 +89,12 @@ class Elm327Client {
 
   Future<void> dispose() async {
     await _rxSub?.cancel();
-    _pending?.completeError(Exception('Disposed'));
+    _rxSub = null;
+    final p = _pending;
+    _pending = null;
+    if (p != null && !p.isCompleted) {
+      p.complete(''); // release any waiter without an unhandled error
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -79,6 +102,7 @@ class Elm327Client {
   // -------------------------------------------------------------------------
 
   void _onBytes(List<int> bytes) {
+    _lastRx = DateTime.now();
     _buf.write(utf8.decode(bytes, allowMalformed: true));
     final raw = _buf.toString();
     if (raw.contains(_prompt)) {
@@ -92,17 +116,36 @@ class Elm327Client {
   }
 
   void _onError(Object err) {
-    _pending?.completeError(err);
+    final p = _pending;
     _pending = null;
+    if (p != null && !p.isCompleted) p.completeError(err);
   }
 
   Future<String> _cmd(String cmd, {Duration? timeout}) async {
-    _pending = Completer<String>();
+    // Drop anything a previous command or stray banner left behind —
+    // responses must always belong to the command just sent.
+    _buf.clear();
+    final completer = Completer<String>();
+    _pending = completer;
     await BleService.write(cmd);
-    return _pending!.future.timeout(timeout ?? _cmdTimeout, onTimeout: () {
-      _pending = null;
+    return completer.future.timeout(timeout ?? _cmdTimeout, onTimeout: () {
+      if (identical(_pending, completer)) _pending = null;
       throw TimeoutException('ELM327 command timeout: $cmd', timeout ?? _cmdTimeout);
     });
+  }
+
+  /// Waits until no bytes have arrived for [quiet], discarding everything.
+  Future<void> _drainUntilQuiet({
+    Duration quiet = const Duration(milliseconds: 300),
+    Duration maxWait = const Duration(seconds: 2),
+  }) async {
+    final deadline = DateTime.now().add(maxWait);
+    while (DateTime.now().isBefore(deadline)) {
+      final sinceLast = DateTime.now().difference(_lastRx);
+      if (sinceLast >= quiet) break;
+      await Future.delayed(const Duration(milliseconds: 60));
+    }
+    _buf.clear();
   }
 
   // Public + static so the decoding logic is unit-testable without BLE.
@@ -112,8 +155,13 @@ class Elm327Client {
     final clean = response.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
     if (clean.length < 12) return {};
 
-    // Skip service byte (41) + PID echo (00) = first 4 hex chars
-    final dataHex = clean.substring(4);
+    // The echoed PID in the response must match the request — otherwise this
+    // is a stale/foreign response and must not be parsed as a bitmap.
+    final expectedHeader = '41${requestPid.substring(2)}'.toUpperCase();
+    final idx = clean.toUpperCase().indexOf(expectedHeader);
+    if (idx < 0 || clean.length < idx + 4 + 8) return {};
+
+    final dataHex = clean.substring(idx + 4);
     final value = int.tryParse(dataHex.substring(0, 8), radix: 16);
     if (value == null) return {};
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/data_service.dart';
 import '../services/obd_fusion_service.dart';
 import '../services/obd2_adapter.dart';
@@ -33,6 +34,9 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
 
   StreamSubscription<LiveTripStats>? _liveSub;
   StreamSubscription<ObdReading?>? _obdSub;
+  StreamSubscription<ObdStatus>? _statusSub;
+  ObdStatus _obdStatus = ObdFusionService.status;
+  bool _ending = false;
 
   @override
   void initState() {
@@ -40,6 +44,13 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
     _tabs = TabController(length: 2, vsync: this);
     _obd = ObdFusionService.lastReading;
     _loadExistingRoute();
+
+    // The phone sits in a car mount — never let the screen go dark mid-trip.
+    WakelockPlus.enable();
+
+    _statusSub = ObdFusionService.statusStream.listen((s) {
+      if (mounted) setState(() => _obdStatus = s);
+    });
 
     _liveSub = TripDetectionService.liveStream.listen((s) {
       if (!mounted) return;
@@ -84,11 +95,50 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _liveSub?.cancel();
     _obdSub?.cancel();
+    _statusSub?.cancel();
     _clock?.cancel();
     _tabs.dispose();
     super.dispose();
+  }
+
+  Future<void> _endTrip() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fahrt beenden?'),
+        content: const Text(
+            'Die Aufzeichnung wird gestoppt und die Fahrt bewertet.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Weiterfahren')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Beenden')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _ending = true);
+    try {
+      if (ObdFusionService.status != ObdStatus.disconnected) {
+        await ObdFusionService.disconnect();
+      }
+      await TripDetectionService.detachManual();
+      await DataService.endTrip(widget.tripId);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _ending = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
   }
 
   String _fmtDuration(Duration d) {
@@ -107,6 +157,12 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Live-Cockpit', style: TextStyle(color: Colors.white)),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(child: _obdChip()),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           indicatorColor: AppTheme.brand,
@@ -121,6 +177,52 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
       body: TabBarView(
         controller: _tabs,
         children: [_buildCockpit(), _buildMap()],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: FilledButton.icon(
+            onPressed: _ending ? null : _endTrip,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.bad,
+              foregroundColor: Colors.white,
+            ),
+            icon: _ending
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.stop_circle_outlined),
+            label: Text(_ending ? 'Wird beendet…' : 'Fahrt beenden'),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _obdChip() {
+    final (label, color, icon) = switch (_obdStatus) {
+      ObdStatus.connected => ('OBD', AppTheme.good, Icons.bluetooth_connected),
+      ObdStatus.connecting => ('Verbinde…', AppTheme.warn, Icons.bluetooth_searching),
+      ObdStatus.reconnecting => ('Reconnect…', AppTheme.warn, Icons.sync),
+      ObdStatus.disconnected => ('kein OBD', Colors.white38, Icons.bluetooth_disabled),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }
@@ -198,7 +300,31 @@ class _LiveTripScreenState extends State<LiveTripScreen> with SingleTickerProvid
 
         // ---- OBD section ----
         const SizedBox(height: 18),
-        if (!obdOn)
+        if (_obdStatus == ObdStatus.reconnecting)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.warn.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Row(
+              children: [
+                SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: AppTheme.warn)),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'OBD-Verbindung abgerissen — wird automatisch wiederhergestellt…',
+                    style: TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (!obdOn)
           _obdConnectCard()
         else ...[
           _chartCard(

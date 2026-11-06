@@ -49,6 +49,11 @@ class Obd2Adapter {
   Future<String> init() async {
     final protocol = await _elm.init();
     _supported = await _elm.supportedPids();
+    // Safety net: when the bitmap query fails (quirky ECU or adapter), try
+    // the universal core PIDs anyway instead of silently reading nothing.
+    if (_supported.isEmpty) {
+      _supported = {'0C', '0D', '05', '11'};
+    }
     return protocol;
   }
 

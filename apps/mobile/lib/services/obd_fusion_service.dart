@@ -6,14 +6,18 @@ import 'elm327_client.dart';
 import 'obd2_adapter.dart';
 import 'notification_service.dart';
 
+enum ObdStatus { disconnected, connecting, connected, reconnecting }
+
 // OBD fusion service:
 // - Manages the BLE ↔ ELM327 lifecycle within an active trip
-// - Polls PIDs on a configurable interval and batches readings to the backend
+// - Polls PIDs on a fixed interval and batches readings to the store
 // - Reads DTCs after connection and fires local notifications for new codes
-// - Tags the trip segment as 'obd' for the duration of connection
+// - Reconnects automatically when the BLE link drops mid-trip (bumpy
+//   adapters and parking-garage walls are normal life in a car)
 class ObdFusionService {
   static const Duration _pollInterval = Duration(seconds: 2);
   static const int _batchSize = 10;
+  static const int _maxReconnectAttempts = 3;
 
   static Elm327Client? _elm;
   static Obd2Adapter? _obd;
@@ -21,6 +25,7 @@ class ObdFusionService {
   static String? _sessionId;
   static String? _activeTripId;
   static String? _elmProtocol;
+  static BluetoothDevice? _device;
 
   static final _readings = <Map<String, dynamic>>[];
   static ObdReading? _lastReading;
@@ -36,29 +41,44 @@ class ObdFusionService {
       StreamController<ObdReading?>.broadcast();
   static Stream<ObdReading?> get readingStream => _readingController.stream;
 
-  static bool get isConnected => BleService.isConnected && _elm != null;
+  static ObdStatus _status = ObdStatus.disconnected;
+  static ObdStatus get status => _status;
+  static final StreamController<ObdStatus> _statusController =
+      StreamController<ObdStatus>.broadcast();
+  static Stream<ObdStatus> get statusStream => _statusController.stream;
+
+  static void _setStatus(ObdStatus s) {
+    _status = s;
+    _statusController.add(s);
+  }
+
+  static bool get isConnected => _status == ObdStatus.connected;
   static String? get elmProtocol => _elmProtocol;
 
   // -------------------------------------------------------------------------
   // Connect to a BLE device and start OBD polling for the given trip
   // -------------------------------------------------------------------------
   static Future<String> connect(BluetoothDevice device, String tripId) async {
-    _activeTripId = tripId;
+    _setStatus(ObdStatus.connecting);
 
     // BLE connection + GATT profile discovery.
     // On failure the BLE link stays open so the BLE Inspector can enumerate
     // the device's services — do NOT disconnect here.
     final profile = await BleService.connect(device);
     if (profile == null) {
+      _setStatus(ObdStatus.disconnected);
       throw Exception(
         'Keine ELM327-Schnittstelle auf diesem Gerät gefunden — auch die '
         'automatische Erkennung blieb erfolglos.\n'
-        'Prüfe, ob Zündung an ist, und versuche es erneut. Details siehe BLE Inspector.',
+        'Prüfe, ob die Zündung an ist, und versuche es erneut.',
       );
     }
 
+    _activeTripId = tripId;
+    _device = device;
+
     try {
-      // Notify backend of session start
+      // Register the session (offline: synthesised locally)
       final adapterName = device.platformName;
       final session = await DataService.startObdSession(
         tripId: tripId,
@@ -71,11 +91,13 @@ class ObdFusionService {
       _obd = Obd2Adapter(_elm!);
       _elmProtocol = await _obd!.init();
     } catch (e) {
-      // Init failed (ignition off, backend down, …) — roll back everything
-      // so a retry starts from a clean state instead of leaking a session.
+      // Init failed (ignition off, …) — roll back everything so a retry
+      // starts from a clean state instead of leaking a session.
       await disconnect();
       rethrow;
     }
+
+    _setStatus(ObdStatus.connected);
 
     // Read DTCs immediately after connect and notify user
     await _checkDtcs(tripId);
@@ -103,7 +125,7 @@ class ObdFusionService {
     _elm = null;
     _obd = null;
 
-    // Tell backend session ended
+    // Close the session record
     if (_sessionId != null && _activeTripId != null) {
       try {
         await DataService.endObdSession(
@@ -117,8 +139,10 @@ class ObdFusionService {
     _sessionId = null;
     _elmProtocol = null;
     _lastReading = null;
+    _device = null;
     _history.clear();
     _readingController.add(null);
+    _setStatus(ObdStatus.disconnected);
 
     await BleService.disconnect();
   }
@@ -129,7 +153,7 @@ class ObdFusionService {
   static bool _polling = false;
 
   static Future<void> _poll() async {
-    if (_obd == null) return;
+    if (_obd == null || _status != ObdStatus.connected) return;
     // A full PID cycle can exceed the poll interval — never overlap two
     // cycles, or their ELM327 commands would interleave on the wire.
     if (_polling) return;
@@ -145,13 +169,59 @@ class ObdFusionService {
       _readings.add(reading.toJson());
       if (_readings.length >= _batchSize) await _flush();
     } catch (e) {
-      // BLE dropped — disconnect gracefully
-      if (e.toString().contains('Not connected') || e.toString().contains('timeout')) {
-        await disconnect();
+      final msg = e.toString();
+      if (msg.contains('Not connected') || msg.contains('timeout')) {
+        await _handleDrop();
       }
     } finally {
       _polling = false;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // BLE drop mid-trip: try to get the adapter back before giving up.
+  // -------------------------------------------------------------------------
+  static Future<void> _handleDrop() async {
+    if (_status != ObdStatus.connected) return;
+    final device = _device;
+    final tripId = _activeTripId;
+    if (device == null || tripId == null) {
+      await disconnect();
+      return;
+    }
+
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _setStatus(ObdStatus.reconnecting);
+
+    await _elm?.dispose();
+    _elm = null;
+    _obd = null;
+    try {
+      await BleService.disconnect();
+    } catch (_) {}
+
+    for (var attempt = 1; attempt <= _maxReconnectAttempts; attempt++) {
+      await Future.delayed(Duration(seconds: 2 * attempt));
+      if (_status != ObdStatus.reconnecting) return; // user disconnected
+      try {
+        final profile = await BleService.connect(device);
+        if (profile == null) continue;
+        _elm = Elm327Client();
+        _obd = Obd2Adapter(_elm!);
+        _elmProtocol = await _obd!.init();
+        _setStatus(ObdStatus.connected);
+        _pollTimer = Timer.periodic(_pollInterval, (_) => _poll());
+        return;
+      } catch (_) {
+        await _elm?.dispose();
+        _elm = null;
+        _obd = null;
+      }
+    }
+
+    // Could not get it back — close down cleanly.
+    await disconnect();
   }
 
   static Future<void> _flush() async {

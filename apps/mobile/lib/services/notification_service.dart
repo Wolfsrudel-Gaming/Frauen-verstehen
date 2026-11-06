@@ -19,6 +19,16 @@ class NotificationService {
       iOS: darwinSettings,
     );
     await _plugin.initialize(settings);
+
+    // Android 13+ requires a runtime permission before any notification —
+    // including the foreground-service banner — may be shown.
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    } catch (_) {}
+
     _initialized = true;
   }
 

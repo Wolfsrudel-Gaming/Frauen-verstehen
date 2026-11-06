@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/ble_service.dart';
 import '../services/obd_fusion_service.dart';
-import 'live_obd_screen.dart';
 
 class BleScannerScreen extends StatefulWidget {
   final String tripId;
@@ -50,11 +49,8 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
     try {
       final protocol = await ObdFusionService.connect(discovered.device, widget.tripId);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => LiveObdScreen(tripId: widget.tripId, protocol: protocol),
-        ),
-      );
+      // Back to the cockpit — it shows all live engine data itself.
+      Navigator.of(context).pop(protocol);
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {

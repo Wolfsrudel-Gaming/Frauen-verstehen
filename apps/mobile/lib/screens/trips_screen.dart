@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/data_service.dart';
-import '../services/obd_fusion_service.dart';
 import '../services/trip_detection_service.dart';
 import '../theme/app_theme.dart';
-import 'ble_scanner_screen.dart';
-import 'live_obd_screen.dart';
 import 'live_trip_screen.dart';
 import 'trip_detail_screen.dart';
 import 'trip_map_screen.dart';
@@ -56,9 +54,17 @@ class _TripsScreenState extends State<TripsScreen> {
         DataService.getTrips(),
         DataService.getVehicles(),
       ]);
+      final prefs = await SharedPreferences.getInstance();
+      final lastVehicle = prefs.getString('last_vehicle_id');
       setState(() {
         _trips = results[0];
         _vehicles = results[1].where((v) => v['isActive'] == true).toList();
+        // Preselect the vehicle used last time, if it still exists
+        if (_selectedVehicleId == null &&
+            lastVehicle != null &&
+            _vehicles.any((v) => v['id'] == lastVehicle)) {
+          _selectedVehicleId = lastVehicle;
+        }
       });
     } catch (e) {
       setState(() { _error = e.toString().replaceFirst('Exception: ', ''); });
@@ -91,6 +97,10 @@ class _TripsScreenState extends State<TripsScreen> {
         vehicleId: _selectedVehicleId,
         startOdometer: _odoCtrl.text.isNotEmpty ? int.tryParse(_odoCtrl.text) : null,
       );
+      if (_selectedVehicleId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_vehicle_id', _selectedVehicleId!);
+      }
       _odoCtrl.clear();
       final tripId = trip['id'] as String;
 
@@ -107,9 +117,9 @@ class _TripsScreenState extends State<TripsScreen> {
       if (gpsWarning != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(gpsWarning)));
       }
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)),
-      );
+      Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)))
+          .then((_) => mounted ? _load() : null);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -137,9 +147,9 @@ class _TripsScreenState extends State<TripsScreen> {
       }
     }
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => LiveTripScreen(tripId: tripId)))
+        .then((_) => mounted ? _load() : null);
   }
 
   Future<void> _endTrip(String tripId) async {
@@ -350,8 +360,6 @@ class _TripsScreenState extends State<TripsScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 12),
-                                _ObdConnectButton(tripId: active['id'] as String),
                               ],
                             ),
                           ),
@@ -437,71 +445,6 @@ class _TripsScreenState extends State<TripsScreen> {
                     ],
                   ),
                 ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// OBD Connect button — shown on an active trip card.
-// Navigates to BLE scanner if not connected; shows live screen if already connected.
-// ---------------------------------------------------------------------------
-class _ObdConnectButton extends StatefulWidget {
-  final String tripId;
-  const _ObdConnectButton({required this.tripId});
-
-  @override
-  State<_ObdConnectButton> createState() => _ObdConnectButtonState();
-}
-
-class _ObdConnectButtonState extends State<_ObdConnectButton> {
-  bool _connected = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _connected = ObdFusionService.isConnected;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_connected) {
-      return SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: () {
-            final protocol = ObdFusionService.elmProtocol ?? 'OBD';
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => LiveObdScreen(tripId: widget.tripId, protocol: protocol),
-              ),
-            );
-          },
-          icon: const Icon(Icons.bluetooth_connected),
-          label: const Text('Live-OBD anzeigen'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => BleScannerScreen(tripId: widget.tripId),
-            ),
-          );
-        },
-        icon: const Icon(Icons.bluetooth_searching),
-        label: const Text('OBD-Adapter verbinden'),
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-      ),
     );
   }
 }
